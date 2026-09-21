@@ -13,7 +13,7 @@ Requires **macOS 26+**, Apple Silicon, and Apple Intelligence.
 
 Opening the `.app` from Downloads also works, but it won’t show the drag-to-Applications panel — that’s the disk image. Putting it in Applications is what you want for Login items and Accessibility.
 
-If macOS says the app can’t be opened, that’s Gatekeeper: right-click Fixyy.app → **Open**. That extra step goes away after the build is signed with an Apple Developer ID and notarized.
+If macOS says the app can’t be opened, that’s Gatekeeper: right-click Fixyy.app → **Open**. Apple only skips that warning after the build is signed with an Apple Developer ID **and notarized** — a self-signed build cannot.
 
 ## Use
 
