@@ -45,7 +45,7 @@ public final class OnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     nonisolated public func windowWillClose(_ notification: Notification) {
-        MainActor.assumeIsolated { self.finish() }
+        Task { @MainActor [weak self] in self?.finish() }
     }
 
     private func close() {

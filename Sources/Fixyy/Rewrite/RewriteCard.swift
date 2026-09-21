@@ -1,14 +1,13 @@
 import AppKit
-import SwiftUI
 
 @MainActor
 public final class RewriteCardController {
     public var onDismiss: (() -> Void)?
     public var onJob: ((JobSummary) -> Void)?
+    public var onSettings: (() -> Void)?
 
-    private var panel: NSPanel?
-    private var hosting: NSHostingController<RewriteCardView>?
-    private var model = RewriteCardModel()
+    private var panel: RewritePanel?
+    private var viewController: RewriteCardViewController?
     private var monitors: [Any] = []
     private let rewrite: RewriteService
     private let selection: SelectionHandling
@@ -16,9 +15,14 @@ public final class RewriteCardController {
     private let info: ModelInfo
     private let countTokens: @MainActor (String) async -> Int?
     private var sourceText = ""
+    private var resultText = ""
     private var promptTokens: Int?
+    private var outputTokens: Int?
+    private var editable = true
+    private var mode: RewriteKind?
     private var generateTask: Task<Void, Never>?
     private var jobStart: ContinuousClock.Instant?
+    private var generationID = UUID()
 
     public init(
         rewrite: RewriteService,
@@ -32,35 +36,69 @@ public final class RewriteCardController {
         self.status = status
         self.info = info
         self.countTokens = countTokens
-        model.onAction = { [weak self] action in self?.perform(action) }
     }
 
     public var isVisible: Bool { panel?.isVisible == true }
 
     public func present(sourceText: String, editable: Bool, promptTokens: Int? = nil) {
+        generationID = UUID()
         generateTask?.cancel()
         self.sourceText = sourceText
         self.promptTokens = promptTokens
-        model.reset(source: sourceText, editable: editable, promptTokens: promptTokens)
-        model.contextSize = info.contextSize
-        model.modelLabel = "\(info.variantName) · On-device"
+        self.editable = editable
+        resultText = ""
+        outputTokens = nil
+        mode = nil
 
-        let view = RewriteCardView(model: model)
-        let hosting = NSHostingController(rootView: view)
-        self.hosting = hosting
+        let controller = RewriteCardViewController()
+        controller.onCustom = { [weak self] line in self?.run(.custom(line)) }
+        controller.onPreset = { [weak self] kind in self?.run(kind) }
+        controller.onApply = { [weak self] in self?.apply() }
+        controller.onCopy = { [weak self] in self?.copyResult() }
+        controller.onRegenerate = { [weak self] in self?.regenerate() }
+        controller.onClose = { [weak self] in self?.dismiss() }
+        controller.onBannerAction = { [weak self] action in self?.performBanner(action) }
+        self.viewController = controller
 
-        let panel = makePanel()
-        panel.contentViewController = hosting
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
-        let height = min(520, screen.height * 0.6)
+        let height = min(360, screen.height * 0.6)
+        let panel = RewritePanel(
+            contentRect: NSRect(origin: .zero, size: NSSize(width: 420, height: height)),
+            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.collectionBehavior = FloatingPanelBehavior.standard
+        panel.contentViewController = controller
         let origin = SelectionAnchor.panelOrigin(width: 420, height: height)
-        panel.setFrame(NSRect(origin: origin, size: NSSize(width: 420, height: height)), display: true)
+        panel.setFrameOrigin(origin)
+        self.panel = panel
+
+        controller.setSourceText(sourceText)
+        controller.setEditable(editable)
+        controller.setBanner(nil)
+        controller.setRunning(false)
+        controller.setMeter(used: promptTokens, limit: info.contextSize, label: "\(info.variantName) · On-device")
+
+        NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         installMonitors()
+        Task { @MainActor [weak panel, weak controller] in
+            if let field = controller?.instructionField {
+                panel?.makeFirstResponder(field)
+            }
+        }
     }
 
     public func presentError(_ error: AppError) {
-        model.banner = error
+        viewController?.setBanner(error)
         status?.showError(error)
         if error.opensAccessibilitySettings { SettingsLinks.openAccessibility() }
         if error.opensIntelligenceSettings { SettingsLinks.openIntelligence() }
@@ -69,7 +107,7 @@ public final class RewriteCardController {
     public func cycleMode() {
         let modes = RewriteKind.modes
         let next: RewriteKind
-        if let active = model.mode, let index = modes.firstIndex(of: active) {
+        if let active = mode, let index = modes.firstIndex(of: active) {
             next = modes[(index + 1) % modes.count]
         } else {
             next = modes[0]
@@ -83,75 +121,58 @@ public final class RewriteCardController {
     }
 
     private func dismissKeepingStatus() {
+        generationID = UUID()
         generateTask?.cancel()
         removeMonitors()
         panel?.orderOut(nil)
         onDismiss?()
     }
 
-    enum CardAction {
-        case run(RewriteKind)
-        case custom(String)
-        case regenerate
-        case apply
-        case copyResult
-        case cycleView
-        case bannerAction(AppError.Action)
-        case close
-    }
-
-    private func perform(_ action: CardAction) {
-        switch action {
-        case .run(let kind): run(kind)
-        case .custom(let line): run(.custom(line))
-        case .regenerate: regenerate()
-        case .apply: apply()
-        case .copyResult: copyResult()
-        case .cycleView: model.cycleView()
-        case .bannerAction(let action):
-            switch action {
-            case .openAccessibility: SettingsLinks.openAccessibility()
-            case .openIntelligence: SettingsLinks.openIntelligence()
-            case .retry: retry()
-            case .copyResult: copyResult()
-            }
-        case .close: dismiss()
-        }
-    }
-
     private func run(_ kind: RewriteKind, sampling: RewriteSampling = .automatic) {
         guard !sourceText.isEmpty else { return }
         generateTask?.cancel()
-        model.banner = nil
-        model.isRunning = true
-        model.result = ""
-        model.outputTokens = nil
-        model.mode = kind
+        generationID = UUID()
+        let generationID = self.generationID
+        mode = kind
+        resultText = ""
+        outputTokens = nil
+        viewController?.setBanner(nil)
+        viewController?.setRunning(true)
+        viewController?.setSourceText(sourceText)
         status?.showWorking()
         jobStart = .now
         generateTask = Task { [weak self] in
             guard let self else { return }
             do {
                 for try await partial in self.rewrite.stream(text: self.sourceText, kind: kind, sampling: sampling) {
-                    self.model.result = partial
+                    guard self.generationID == generationID else { return }
+                    self.resultText = partial
+                    self.viewController?.setResultText(partial)
                 }
-                self.model.isRunning = false
+                guard self.generationID == generationID else { return }
+                self.viewController?.setRunning(false)
                 self.status?.hide()
-                self.model.outputTokens = await self.countTokens(self.model.result) ?? self.model.result.count / 4
+                self.outputTokens = await self.countTokens(self.resultText) ?? self.resultText.count / 4
+                guard self.generationID == generationID else { return }
+                self.updateMeter()
             } catch is CancellationError {
-                self.model.isRunning = false
+                guard self.generationID == generationID else { return }
+                self.viewController?.setRunning(false)
                 self.status?.hide()
             } catch let error as AppError where error == .cancelled {
-                self.model.isRunning = false
+                guard self.generationID == generationID else { return }
+                self.viewController?.setRunning(false)
                 self.status?.hide()
             } catch let error as AppError {
-                self.model.isRunning = false
-                self.model.banner = error
+                guard self.generationID == generationID else { return }
+                self.viewController?.setRunning(false)
+                self.viewController?.setBanner(error)
                 self.status?.showError(error)
                 self.report(.error(error))
             } catch {
-                self.model.isRunning = false
-                self.model.banner = .stalled
+                guard self.generationID == generationID else { return }
+                self.viewController?.setRunning(false)
+                self.viewController?.setBanner(.stalled)
                 self.status?.showError(.stalled)
                 self.report(.error(.stalled))
             }
@@ -159,19 +180,17 @@ public final class RewriteCardController {
     }
 
     private func regenerate() {
-        let kind = model.mode ?? .clearer
-        run(kind, sampling: .randomTop(50))
+        run(mode ?? .clearer, sampling: .randomTop(50))
     }
 
     private func retry() {
-        if let mode = model.mode {
-            run(mode)
-        }
+        if let mode { run(mode) }
     }
 
     private func apply() {
-        let text = model.result.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = resultText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        generationID = UUID()
         generateTask?.cancel()
         Task { [weak self] in
             guard let self else { return }
@@ -183,12 +202,33 @@ public final class RewriteCardController {
     }
 
     private func copyResult() {
-        let text = model.result.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = resultText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        generationID = UUID()
+        generateTask?.cancel()
         selection.leaveOnClipboard(text)
         status?.showSuccess("Copied")
         report(.copied)
         dismissKeepingStatus()
+    }
+
+    private func performBanner(_ action: AppError.Action) {
+        switch action {
+        case .openAccessibility: SettingsLinks.openAccessibility()
+        case .openIntelligence: SettingsLinks.openIntelligence()
+        case .retry: retry()
+        case .copyResult: copyResult()
+        }
+    }
+
+    private func updateMeter() {
+        let used: Int?
+        if promptTokens != nil || outputTokens != nil {
+            used = (promptTokens ?? sourceText.count / 4) + (outputTokens ?? 0)
+        } else {
+            used = nil
+        }
+        viewController?.setMeter(used: used, limit: info.contextSize, label: "\(info.variantName) · On-device")
     }
 
     private func report(_ outcome: JobSummary.Outcome) {
@@ -196,7 +236,7 @@ public final class RewriteCardController {
         onJob?(JobSummary(
             kind: .rewrite,
             promptTokens: promptTokens,
-            outputTokens: model.outputTokens,
+            outputTokens: outputTokens,
             latency: TimeInterval(latency.components.seconds) + TimeInterval(latency.components.attoseconds) / 1e18,
             outcome: outcome
         ))
@@ -224,209 +264,303 @@ public final class RewriteCardController {
             return nil
         }
         if command {
+            if event.keyCode == 43 || event.charactersIgnoringModifiers == "," {
+                onSettings?()
+                dismiss()
+                return nil
+            }
             switch event.keyCode {
             case 18, 19, 20, 21:
                 let index = Int(event.keyCode - 18)
                 let modes = RewriteKind.modes
                 if index < modes.count { run(modes[index]) }
                 return nil
-            case 2:
-                model.cycleView()
-                return nil
             case 15:
                 regenerate()
                 return nil
             case 8:
-                if fieldHasSelection() { return event }
+                if let editor = panel?.firstResponder as? NSTextView,
+                   editor.selectedRange().length > 0 {
+                    return event
+                }
                 copyResult()
                 return nil
             default:
                 return event
             }
         }
-        if event.keyCode == 36, !event.modifierFlags.contains(.command) {
-            if fieldIsFirstResponder() { return event }
-            if model.editable { apply() } else { copyResult() }
-            return nil
-        }
         return event
-    }
-
-    private func fieldIsFirstResponder() -> Bool {
-        panel?.firstResponder is NSTextView
-    }
-
-    private func fieldHasSelection() -> Bool {
-        guard let editor = panel?.firstResponder as? NSTextView else { return false }
-        return editor.selectedRange().length > 0
     }
 
     private func removeMonitors() {
         for monitor in monitors { NSEvent.removeMonitor(monitor) }
         monitors.removeAll()
     }
+}
 
-    private func makePanel() -> NSPanel {
-        if let panel { return panel }
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 420),
-            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
+private final class RewritePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
+private final class RewriteCardViewController: NSViewController, NSTextFieldDelegate {
+    var onCustom: ((String) -> Void)?
+    var onPreset: ((RewriteKind) -> Void)?
+    var onApply: (() -> Void)?
+    var onCopy: (() -> Void)?
+    var onRegenerate: (() -> Void)?
+    var onClose: (() -> Void)?
+    var onBannerAction: ((AppError.Action) -> Void)?
+
+    let instructionField = NSTextField()
+    let textView = NSTextView()
+
+    private let effectView = NSVisualEffectView()
+    private let scrollView = NSScrollView()
+    private let bannerRow = NSStackView()
+    private let bannerLabel = NSTextField(labelWithString: "")
+    private let bannerButton = NSButton(title: "", target: nil, action: nil)
+    private let modelLabel = NSTextField(labelWithString: "")
+    private let meterLabel = NSTextField(labelWithString: "")
+    private let spinner = NSProgressIndicator()
+    private let applyButton = NSButton(title: "Apply", target: nil, action: nil)
+    private let copyButton = NSButton(title: "Copy", target: nil, action: nil)
+    private let regenerateButton = NSButton(title: "Regenerate", target: nil, action: nil)
+    private var bannerAction: AppError.Action?
+    private var editable = true
+    private var running = false
+    private var hasGeneratedResult = false
+
+    override func loadView() {
+        effectView.material = .popover
+        effectView.blendingMode = .behindWindow
+        effectView.state = .active
+        effectView.wantsLayer = true
+        effectView.layer?.cornerRadius = 14
+        effectView.layer?.cornerCurve = .continuous
+        effectView.layer?.masksToBounds = true
+        view = effectView
+        buildLayout()
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        instructionField.delegate = self
+    }
+
+    private func buildLayout() {
+        let title = NSTextField(labelWithString: "Rewrite")
+        title.font = .systemFont(ofSize: 12, weight: .semibold)
+        title.textColor = .secondaryLabelColor
+
+        let closeButton = NSButton(
+            image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")!,
+            target: self,
+            action: #selector(closeClicked)
         )
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.hidesOnDeactivate = false
-        panel.isReleasedWhenClosed = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .moveToActiveSpace]
-        panel.isMovableByWindowBackground = true
-        self.panel = panel
-        return panel
-    }
-}
+        closeButton.isBordered = false
+        closeButton.imageScaling = .scaleProportionallyDown
+        closeButton.contentTintColor = .secondaryLabelColor
 
-@MainActor
-@Observable
-final class RewriteCardModel {
-    enum ContentView: Int, CaseIterable {
-        case original
-        case result
-        case changes
+        let header = NSStackView(views: [title, NSView(), closeButton])
+        header.orientation = .horizontal
+        header.alignment = .centerY
+        header.setHuggingPriority(.defaultLow, for: .horizontal)
 
-        var title: String {
-            switch self {
-            case .original: "Original"
-            case .result: "Result"
-            case .changes: "Changes"
-            }
+        instructionField.placeholderString = "Tell Fixyy how to rewrite…"
+        instructionField.font = .systemFont(ofSize: 13)
+        instructionField.bezelStyle = .roundedBezel
+        instructionField.target = self
+        instructionField.action = #selector(submitInstruction)
+        instructionField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let sendButton = NSButton(
+            image: NSImage(systemSymbolName: "arrow.up.circle.fill", accessibilityDescription: "Send")!,
+            target: self,
+            action: #selector(submitInstruction)
+        )
+        sendButton.isBordered = false
+        sendButton.imageScaling = .scaleProportionallyDown
+
+        let inputRow = NSStackView(views: [instructionField, sendButton])
+        inputRow.orientation = .horizontal
+        inputRow.spacing = 8
+        inputRow.alignment = .centerY
+
+        let presets = RewriteKind.modes.map { kind -> NSButton in
+            let button = NSButton(title: kind.chipTitle, target: self, action: #selector(presetClicked(_:)))
+            button.bezelStyle = .rounded
+            button.controlSize = .small
+            button.tag = RewriteKind.modes.firstIndex(of: kind) ?? 0
+            return button
         }
+        let presetRow = NSStackView(views: presets)
+        presetRow.orientation = .horizontal
+        presetRow.distribution = .fillEqually
+        presetRow.spacing = 8
+
+        let warning = NSImageView(
+            image: NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: "Error")!
+        )
+        warning.contentTintColor = .systemOrange
+        bannerLabel.font = .systemFont(ofSize: 12)
+        bannerLabel.lineBreakMode = .byTruncatingTail
+        bannerButton.bezelStyle = .rounded
+        bannerButton.controlSize = .small
+        bannerButton.target = self
+        bannerButton.action = #selector(bannerClicked)
+        bannerRow.orientation = .horizontal
+        bannerRow.spacing = 8
+        bannerRow.alignment = .centerY
+        bannerRow.addArrangedSubview(warning)
+        bannerRow.addArrangedSubview(bannerLabel)
+        bannerRow.addArrangedSubview(NSView())
+        bannerRow.addArrangedSubview(bannerButton)
+        bannerRow.isHidden = true
+
+        scrollView.hasVerticalScroller = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.drawsBackground = false
+        textView.font = .systemFont(ofSize: 14)
+        textView.textContainerInset = NSSize(width: 4, height: 4)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.textContainer?.widthTracksTextView = true
+        scrollView.documentView = textView
+
+        modelLabel.font = .systemFont(ofSize: 11)
+        modelLabel.textColor = .secondaryLabelColor
+        meterLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        meterLabel.textColor = .secondaryLabelColor
+        let leftStack = NSStackView(views: [modelLabel, meterLabel])
+        leftStack.orientation = .vertical
+        leftStack.alignment = .leading
+        leftStack.spacing = 2
+
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.isDisplayedWhenStopped = false
+
+        regenerateButton.bezelStyle = .rounded
+        regenerateButton.controlSize = .regular
+        regenerateButton.target = self
+        regenerateButton.action = #selector(regenerateClicked)
+        copyButton.bezelStyle = .rounded
+        copyButton.target = self
+        copyButton.action = #selector(copyClicked)
+        applyButton.bezelStyle = .rounded
+        applyButton.target = self
+        applyButton.action = #selector(applyClicked)
+
+        let footer = NSStackView(views: [leftStack, NSView(), spinner, regenerateButton, copyButton, applyButton])
+        footer.orientation = .horizontal
+        footer.alignment = .centerY
+        footer.spacing = 8
+
+        let column = NSStackView(views: [header, inputRow, presetRow, bannerRow, scrollView, footer])
+        column.orientation = .vertical
+        column.spacing = 10
+        column.alignment = .leading
+        column.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 14, right: 16)
+        column.translatesAutoresizingMaskIntoConstraints = false
+        effectView.addSubview(column)
+
+        inputRow.translatesAutoresizingMaskIntoConstraints = false
+        presetRow.translatesAutoresizingMaskIntoConstraints = false
+        bannerRow.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        footer.translatesAutoresizingMaskIntoConstraints = false
+        header.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            column.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
+            column.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
+            column.topAnchor.constraint(equalTo: effectView.topAnchor),
+            column.bottomAnchor.constraint(equalTo: effectView.bottomAnchor),
+            header.widthAnchor.constraint(equalTo: column.widthAnchor),
+            inputRow.widthAnchor.constraint(equalTo: column.widthAnchor),
+            presetRow.widthAnchor.constraint(equalTo: column.widthAnchor),
+            bannerRow.widthAnchor.constraint(equalTo: column.widthAnchor),
+            scrollView.widthAnchor.constraint(equalTo: column.widthAnchor),
+            footer.widthAnchor.constraint(equalTo: column.widthAnchor),
+        ])
+        scrollView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        scrollView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
     }
 
-    var source = ""
-    var result = ""
-    var custom = ""
-    var isRunning = false
-    var banner: AppError?
-    var editable = true
-    var mode: RewriteKind?
-    var contentView: ContentView = .result
-    var promptTokens: Int?
-    var outputTokens: Int?
-    var contextSize = 4096
-    var modelLabel = "On-device"
-    var onAction: ((RewriteCardController.CardAction) -> Void)?
+    func setSourceText(_ text: String) {
+        hasGeneratedResult = false
+        textView.string = text
+        updateActionButtons()
+    }
 
-    func reset(source: String, editable: Bool, promptTokens: Int?) {
-        self.source = source
+    func setResultText(_ text: String) {
+        hasGeneratedResult = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        textView.string = text
+        textView.scrollToEndOfDocument(nil)
+        updateActionButtons()
+    }
+
+    func setRunning(_ running: Bool) {
+        self.running = running
+        if running {
+            spinner.startAnimation(nil)
+        } else {
+            spinner.stopAnimation(nil)
+        }
+        updateActionButtons()
+    }
+
+    func setEditable(_ editable: Bool) {
         self.editable = editable
-        self.promptTokens = promptTokens
-        result = ""
-        custom = ""
-        isRunning = false
-        banner = nil
-        mode = nil
-        contentView = .result
-        outputTokens = nil
+        updateActionButtons()
     }
 
-    func cycleView() {
-        let all = ContentView.allCases
-        let index = all.firstIndex(of: contentView) ?? 0
-        contentView = all[(index + 1) % all.count]
-    }
-
-    var usedTokens: Int? {
-        guard promptTokens != nil || outputTokens != nil else { return nil }
-        return (promptTokens ?? source.count / 4) + (outputTokens ?? 0)
-    }
-}
-
-struct RewriteCardView: View {
-    let model: RewriteCardModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            modePicker
-            customField
-            if let banner = model.banner {
-                bannerView(banner)
-            }
-            bodyText
-            footer
-        }
-        .padding(16)
-        .frame(width: 420)
-        .background(.regularMaterial)
-    }
-
-    private var header: some View {
-        HStack {
-            Text("Rewrite")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-            Spacer()
-            Button {
-                model.onAction?(.close)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private var modePicker: some View {
-        Picker("Mode", selection: Binding(
-            get: { model.mode },
-            set: { newValue in if let kind = newValue { model.onAction?(.run(kind)) } }
-        )) {
-            ForEach(RewriteKind.modes, id: \.self) { kind in
-                Text(kind.chipTitle).tag(Optional(kind))
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .disabled(model.isRunning)
-    }
-
-    private var customField: some View {
-        TextField("Or tell it how…", text: Binding(
-            get: { model.custom },
-            set: { model.custom = $0 }
-        ))
-        .textFieldStyle(.roundedBorder)
-        .font(.system(size: 13))
-        .onSubmit {
-            let line = model.custom.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty else { return }
-            model.onAction?(.custom(line))
-        }
-        .disabled(model.isRunning)
-    }
-
-    private func bannerView(_ error: AppError) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle")
-                .foregroundStyle(.orange)
-            Text(error.message)
-                .font(.system(size: 12))
-            Spacer()
+    func setBanner(_ error: AppError?) {
+        bannerAction = error?.action
+        if let error {
+            bannerLabel.stringValue = error.message
             if let action = error.action {
-                Button(actionLabel(action)) { model.onAction?(.bannerAction(action)) }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                bannerButton.title = bannerTitle(action)
+                bannerButton.isHidden = false
+            } else {
+                bannerButton.isHidden = true
             }
+            bannerRow.isHidden = false
+        } else {
+            bannerRow.isHidden = true
         }
-        .padding(8)
-        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
-    private func actionLabel(_ action: AppError.Action) -> String {
+    func setMeter(used: Int?, limit: Int, label: String) {
+        modelLabel.stringValue = label
+        if let used {
+            let filled = max(0, min(5, Int((Double(used) / Double(max(1, limit)) * 5).rounded())))
+            let blocks = String(repeating: "▮", count: filled) + String(repeating: "▯", count: 5 - filled)
+            meterLabel.stringValue = "\(blocks) \(used.formatted()) / \(limit.formatted())"
+        } else {
+            meterLabel.stringValue = ""
+        }
+    }
+
+    private func updateActionButtons() {
+        applyButton.isHidden = !editable
+        applyButton.isEnabled = hasGeneratedResult && !running
+        copyButton.isEnabled = hasGeneratedResult && !running
+        regenerateButton.isEnabled = !running
+        if editable {
+            applyButton.keyEquivalent = "\r"
+            copyButton.keyEquivalent = ""
+        } else {
+            copyButton.keyEquivalent = "\r"
+            applyButton.keyEquivalent = ""
+        }
+    }
+
+    private func bannerTitle(_ action: AppError.Action) -> String {
         switch action {
         case .openAccessibility, .openIntelligence: "Open Settings"
         case .retry: "Retry"
@@ -434,96 +568,23 @@ struct RewriteCardView: View {
         }
     }
 
-    private var bodyText: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Picker("View", selection: Binding(
-                get: { model.contentView },
-                set: { model.contentView = $0 }
-            )) {
-                ForEach(RewriteCardModel.ContentView.allCases, id: \.self) { view in
-                    Text(view.title).tag(view)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 220)
-
-            ScrollView {
-                Group {
-                    if model.contentView == .changes {
-                        changesText
-                    } else {
-                        Text(displayText)
-                    }
-                }
-                .font(.system(size: 14))
-                .lineSpacing(4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-                .foregroundStyle(isPlaceholder ? Color.secondary : Color.primary)
-                .opacity(model.isRunning && model.result.isEmpty ? 0.55 : 1)
-            }
-            .frame(minHeight: 120, maxHeight: .infinity)
-        }
+    @objc private func submitInstruction() {
+        let line = instructionField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !line.isEmpty else { return }
+        onCustom?(line)
     }
 
-    private var displayText: String {
-        switch model.contentView {
-        case .original:
-            return model.source.isEmpty ? "Select some text, then pick a rewrite." : model.source
-        case .result:
-            if !model.result.isEmpty { return model.result }
-            return model.source.isEmpty ? "Select some text, then pick a rewrite." : model.source
-        case .changes:
-            return model.result.isEmpty ? "Run a rewrite to see changes." : ""
-        }
+    @objc private func presetClicked(_ sender: NSButton) {
+        let modes = RewriteKind.modes
+        guard sender.tag < modes.count else { return }
+        onPreset?(modes[sender.tag])
     }
 
-    private var isPlaceholder: Bool {
-        model.contentView != .changes && model.result.isEmpty
-    }
-
-    private var changesText: Text {
-        Text(FixHUDView.diffAttributedString(TextDiff.segments(from: model.source, to: model.result)))
-    }
-
-    private var footer: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(model.modelLabel)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                if let used = model.usedTokens {
-                    Text(meter(used: used, limit: model.contextSize))
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            if model.isRunning {
-                ProgressView()
-                    .controlSize(.small)
-            }
-            Button("Regenerate") { model.onAction?(.regenerate) }
-                .disabled(model.mode == nil || model.isRunning)
-            if model.editable {
-                Button("Copy") { model.onAction?(.copyResult) }
-                    .buttonStyle(.bordered)
-                    .disabled(model.result.isEmpty || model.isRunning)
-                Button("Apply") { model.onAction?(.apply) }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.result.isEmpty || model.isRunning)
-            } else {
-                Button("Copy") { model.onAction?(.copyResult) }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.result.isEmpty || model.isRunning)
-            }
-        }
-    }
-
-    private func meter(used: Int, limit: Int) -> String {
-        let filled = max(0, min(5, Int((Double(used) / Double(max(1, limit)) * 5).rounded())))
-        let blocks = String(repeating: "▮", count: filled) + String(repeating: "▯", count: 5 - filled)
-        return "\(blocks) \(used.formatted()) / \(limit.formatted())"
+    @objc private func applyClicked() { onApply?() }
+    @objc private func copyClicked() { onCopy?() }
+    @objc private func regenerateClicked() { onRegenerate?() }
+    @objc private func closeClicked() { onClose?() }
+    @objc private func bannerClicked() {
+        if let bannerAction { onBannerAction?(bannerAction) }
     }
 }

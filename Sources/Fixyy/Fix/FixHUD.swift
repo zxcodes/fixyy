@@ -153,7 +153,7 @@ public final class FixHUD: HUDPresenting {
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .moveToActiveSpace]
+        panel.collectionBehavior = FloatingPanelBehavior.standard
         self.panel = panel
         return panel
     }

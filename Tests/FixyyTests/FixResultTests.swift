@@ -24,4 +24,28 @@ final class FixResultTests: XCTestCase {
         XCTAssertFalse(result.hasChanges)
         XCTAssertEqual(result.text, "Keep me")
     }
+
+    func testTripleWrapperStripped() {
+        XCTAssertEqual(FixResult.clean("<<<\nHello\n>>>"), "Hello")
+    }
+
+    func testDoubleWrapperStripped() {
+        XCTAssertEqual(FixResult.clean("<<\nHello\n>>"), "Hello")
+    }
+
+    func testWrapperToleratesWhitespaceAndRepeats() {
+        XCTAssertEqual(FixResult.clean("  <<<\n<<<\nHello\n>>>\n>>>\n "), "Hello")
+    }
+
+    func testInlineWrappersPreserved() {
+        XCTAssertEqual(FixResult.clean("Use <<this>> notation"), "Use <<this>> notation")
+    }
+
+    func testUnmatchedCloserPreserved() {
+        XCTAssertEqual(FixResult.clean("Hello\n>>>"), "Hello\n>>>")
+    }
+
+    func testPartialOpenerHiddenForStreaming() {
+        XCTAssertEqual(FixResult.clean("<<<\nHello"), "Hello")
+    }
 }

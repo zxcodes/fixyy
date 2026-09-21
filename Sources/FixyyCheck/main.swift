@@ -26,6 +26,7 @@ enum FixyyCheck {
         failures += await tokenBudget()
         failures += statusLine()
         failures += errorMapping()
+        failures += panelBehavior()
         if failures > 0 {
             fputs("\(failures) check(s) failed\n", stderr)
             exit(1)
@@ -208,6 +209,13 @@ enum FixyyCheck {
         return expect(!same.hasChanges, "identical is no change")
             + expect(diff.hasChanges, "different is a change")
             + expect(!quoted.hasChanges, "quoted unwrap")
+            + expect(FixResult.clean("<<<\nHello\n>>>") == "Hello", "triple wrapper strip")
+            + expect(FixResult.clean("<<\nHello\n>>") == "Hello", "double wrapper strip")
+            + expect(FixResult.clean("  <<<\nHello\n>>>\n  ") == "Hello", "wrapper whitespace")
+            + expect(FixResult.clean("<<<\n<<<\nHello\n>>>\n>>>") == "Hello", "repeated wrappers")
+            + expect(FixResult.clean("Use <<this>> notation") == "Use <<this>> notation", "inline wrappers preserved")
+            + expect(FixResult.clean("Hello\n>>>") == "Hello\n>>>", "unmatched closer preserved")
+            + expect(FixResult.clean("<<<\nHello") == "Hello", "partial opener hidden")
     }
 
     static func pasteboard() -> Int {
@@ -272,6 +280,13 @@ enum FixyyCheck {
         return expect(ready == "Core 3 · On-device · 8,192 ctx", "statusLine available")
             + expect(off == "Unavailable · Apple Intelligence is off", "statusLine off")
             + expect(downloading.hasPrefix("Unavailable ·"), "statusLine downloading")
+    }
+
+    static func panelBehavior() -> Int {
+        let behavior = FloatingPanelBehavior.standard
+        return expect(behavior.contains(.canJoinAllSpaces), "panels join all spaces")
+            + expect(behavior.contains(.fullScreenAuxiliary), "panels work in fullscreen")
+            + expect(!behavior.contains(.moveToActiveSpace), "all-spaces panels must not moveToActiveSpace")
     }
 
     static func errorMapping() -> Int {

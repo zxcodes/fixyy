@@ -50,6 +50,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             info: info
         ) { [weak coordinator] in coordinator?.lastJob }
         self.settings = settings
+        card.onSettings = { [weak settings] in settings?.show() }
+        installMainMenu()
         let onboarding = OnboardingWindowController(prefs: prefs, selection: selection, info: info)
         self.onboarding = onboarding
         coordinator.onJobCompleted = { [weak onboarding] job in
@@ -72,6 +74,32 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if !prefs.hasCompletedOnboarding || !selection.isTrusted {
             onboarding.show()
         }
+    }
+
+    private func installMainMenu() {
+        let mainMenu = NSMenu()
+        let appItem = NSMenuItem()
+        mainMenu.addItem(appItem)
+        let appMenu = NSMenu(title: "Fixyy")
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.keyEquivalentModifierMask = [.command]
+        settingsItem.target = self
+        appMenu.addItem(settingsItem)
+        appMenu.addItem(.separator())
+        let quitItem = NSMenuItem(title: "Quit Fixyy", action: #selector(quitApp), keyEquivalent: "q")
+        quitItem.keyEquivalentModifierMask = [.command]
+        quitItem.target = self
+        appMenu.addItem(quitItem)
+        appItem.submenu = appMenu
+        NSApp.mainMenu = mainMenu
+    }
+
+    @objc private func openSettings() {
+        settings?.show()
+    }
+
+    @objc private func quitApp() {
+        NSApp.terminate(nil)
     }
 
     private func registerHotkeys() {

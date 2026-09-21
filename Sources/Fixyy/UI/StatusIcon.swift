@@ -3,8 +3,17 @@ import AppKit
 enum StatusIcon {
     static func mark() -> NSImage {
         draw(size: 18) { rect, scale in
-            let font = NSFont(name: "AvenirNext-Heavy", size: 12.5 * scale)
-                ?? NSFont.systemFont(ofSize: 12.5 * scale, weight: .heavy)
+            NSColor.black.setStroke()
+            let container = NSBezierPath(
+                roundedRect: rect.insetBy(dx: 1.25 * scale, dy: 1.25 * scale),
+                xRadius: 4 * scale,
+                yRadius: 4 * scale
+            )
+            container.lineWidth = 1.15 * scale
+            container.stroke()
+
+            let font = NSFont(name: "AvenirNext-Heavy", size: 10.25 * scale)
+                ?? NSFont.systemFont(ofSize: 10.25 * scale, weight: .heavy)
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: font,
                 .foregroundColor: NSColor.black,
@@ -12,18 +21,18 @@ enum StatusIcon {
             let text = "f" as NSString
             let size = text.size(withAttributes: attributes)
             let origin = NSPoint(
-                x: rect.minX + 0.26 * rect.width - 0.5 * scale,
+                x: rect.minX + 0.28 * rect.width,
                 y: rect.midY - size.height * 0.36
             )
             text.draw(at: origin, withAttributes: attributes)
 
             let check = NSBezierPath()
-            check.lineWidth = 1.4 * scale
+            check.lineWidth = 1.15 * scale
             check.lineCapStyle = .round
             check.lineJoinStyle = .round
-            check.move(to: point(0.52, 0.50, in: rect))
-            check.line(to: point(0.62, 0.40, in: rect))
-            check.line(to: point(0.82, 0.62, in: rect))
+            check.move(to: point(0.51, 0.50, in: rect))
+            check.line(to: point(0.61, 0.40, in: rect))
+            check.line(to: point(0.77, 0.59, in: rect))
             check.stroke()
         }
     }

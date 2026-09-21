@@ -60,6 +60,7 @@ public final class StatusItemController: NSObject {
 
         menu.delegate = self
         item.menu = menu
+        buildMenu()
     }
 
     private func buildMenu() {
@@ -75,8 +76,12 @@ public final class StatusItemController: NSObject {
             menu.addItem(last)
         }
         menu.addItem(.separator())
-        menu.addItem(actionItem("Settings…", shortcut: "⌘,", action: #selector(menuSettings)))
-        menu.addItem(actionItem("Quit Fixyy", shortcut: "⌘Q", action: #selector(menuQuit)))
+        menu.addItem(commandItem("Settings…", key: ",", action: #selector(menuSettings)))
+        menu.addItem(commandItem("Quit Fixyy", key: "q", action: #selector(menuQuit)))
+    }
+
+    private func captureAppBeforeMenu(_ app: NSRunningApplication?) {
+        appBeforeMenu = app?.processIdentifier != ProcessInfo.processInfo.processIdentifier ? app : nil
     }
 
     private func statusRow() -> NSMenuItem {
@@ -94,6 +99,13 @@ public final class StatusItemController: NSObject {
         row.target = self
         row.isEnabled = !available
         return row
+    }
+
+    private func commandItem(_ title: String, key: String, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        item.keyEquivalentModifierMask = [.command]
+        item.target = self
+        return item
     }
 
     private func actionItem(_ title: String, shortcut: String, action: Selector) -> NSMenuItem {
@@ -167,9 +179,10 @@ public final class StatusItemController: NSObject {
 
 extension StatusItemController: NSMenuDelegate {
     nonisolated public func menuWillOpen(_ menu: NSMenu) {
-        MainActor.assumeIsolated {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             let front = NSWorkspace.shared.frontmostApplication
-            self.appBeforeMenu = front?.processIdentifier != ProcessInfo.processInfo.processIdentifier ? front : nil
+            self.captureAppBeforeMenu(front)
             self.buildMenu()
         }
     }
