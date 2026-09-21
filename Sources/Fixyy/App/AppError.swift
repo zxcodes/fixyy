@@ -42,7 +42,7 @@ public enum AppError: Error, Equatable, Sendable {
         case .refusal: "The model declined this request"
         case .rateLimited: "Model is busy — try again in a moment"
         case .stalled: "Model stopped responding"
-        case .emptySelection: "Select some text first"
+        case .emptySelection: "No text selected"
         case .secureField: "Won’t edit a password field"
         case .pasteFailed: "Couldn’t paste — result copied to clipboard"
         case .cancelled: ""

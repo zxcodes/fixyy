@@ -3,9 +3,9 @@
 Menu-bar writing helper for Mac. Select text, press a shortcut, and Apple’s on-device Foundation Model fixes grammar or rewrites it. Nothing leaves the machine.
 
 - **⌘⇧G** — fix grammar in place with a diff HUD and Undo. If nothing is wrong, it says “Looks good” and does not replace.
-- **⌘⇧R** — streaming rewrite card (Shorter / Clearer / Formal / Friendly / Custom) anchored to the selection, with Original | Result | Changes views and a token meter. Return applies, Esc cancels.
+- **⌘⇧R** — rewrite window (Shorter / Clearer / Formal / Friendly / Custom) with a token meter. Return applies, Esc cancels.
 - Status item shows a native menu: live model status, Fix/Rewrite actions, last job, Settings, Quit.
-- Settings has five tabs (General, Shortcuts, Style, Model, About); onboarding walks through Accessibility, Apple Intelligence, and a first fix.
+- Settings has two tabs (General, About); onboarding walks through Accessibility, Apple Intelligence, and a first fix.
 
 Requires **macOS 26+**, Apple Silicon, Apple Intelligence enabled.
 

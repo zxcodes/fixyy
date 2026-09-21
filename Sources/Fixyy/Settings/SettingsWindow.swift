@@ -40,7 +40,7 @@ public final class SettingsWindowController {
         window.title = "Fixyy Settings"
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
-        window.setContentSize(NSSize(width: 520, height: 560))
+        window.setContentSize(NSSize(width: 500, height: 540))
         window.center()
         self.window = window
         NSApp.activate(ignoringOtherApps: true)
@@ -172,90 +172,14 @@ struct SettingsView: View {
         TabView {
             GeneralTab(model: model)
                 .tabItem { Label("General", systemImage: "gear") }
-            ShortcutsTab(model: model)
-                .tabItem { Label("Shortcuts", systemImage: "keyboard") }
-            StyleTab(model: model)
-                .tabItem { Label("Style", systemImage: "textformat") }
-            ModelTab(model: model)
-                .tabItem { Label("Model", systemImage: "apple.intelligence") }
             AboutTab(model: model)
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 520)
+        .frame(width: 500)
     }
 }
 
 private struct GeneralTab: View {
-    let model: SettingsModel
-
-    var body: some View {
-        Form {
-            Section {
-                Toggle("Launch at login", isOn: Binding(
-                    get: { model.launchesAtLogin },
-                    set: { _ in model.toggleLogin() }
-                ))
-            }
-            Section {
-                LabeledContent("Accessibility") {
-                    HStack {
-                        Text(model.accessibilityGranted ? "Granted" : "Not granted")
-                            .foregroundStyle(model.accessibilityGranted ? Color.secondary : Color.red)
-                        Button("Open System Settings…") { model.openAccessibility() }
-                    }
-                }
-                LabeledContent("Apple Intelligence") {
-                    HStack {
-                        Text(model.info.availability.settingsLabel)
-                            .foregroundStyle(model.info.availability == .available ? Color.secondary : Color.red)
-                        Button("Open…") { model.openIntelligence() }
-                    }
-                }
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
-private struct ShortcutsTab: View {
-    let model: SettingsModel
-
-    var body: some View {
-        Form {
-            Section {
-                LabeledContent("Fix grammar") {
-                    VStack(alignment: .trailing, spacing: 4) {
-                        ShortcutRecorder(
-                            shortcut: model.fixShortcut,
-                            onCommit: { model.setShortcut($0, action: "fix") }
-                        )
-                        if model.conflict(for: "fix") {
-                            Text("In use by another app")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.red)
-                        }
-                    }
-                }
-                LabeledContent("Rewrite") {
-                    VStack(alignment: .trailing, spacing: 4) {
-                        ShortcutRecorder(
-                            shortcut: model.rewriteShortcut,
-                            onCommit: { model.setShortcut($0, action: "rewrite") }
-                        )
-                        if model.conflict(for: "rewrite") {
-                            Text("In use by another app")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.red)
-                        }
-                    }
-                }
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
-private struct StyleTab: View {
     let model: SettingsModel
 
     private let examples = [
@@ -267,19 +191,45 @@ private struct StyleTab: View {
     var body: some View {
         Form {
             Section {
+                Toggle("Launch at login", isOn: Binding(
+                    get: { model.launchesAtLogin },
+                    set: { _ in model.toggleLogin() }
+                ))
+            }
+            Section {
+                permissionRow(
+                    "Accessibility",
+                    status: model.accessibilityGranted ? "Granted" : "Not granted",
+                    ok: model.accessibilityGranted,
+                    action: model.openAccessibility
+                )
+                permissionRow(
+                    "Apple Intelligence",
+                    status: model.info.availability.settingsLabel,
+                    ok: model.info.availability == .available,
+                    action: model.openIntelligence
+                )
+            }
+            Section("Shortcuts") {
+                shortcutRow("Fix grammar", shortcut: model.fixShortcut, action: "fix")
+                shortcutRow("Rewrite", shortcut: model.rewriteShortcut, action: "rewrite")
+            }
+            Section("Style") {
                 TextEditor(text: Binding(
                     get: { model.styleNote },
                     set: { model.styleNote = $0; model.persistStyle() }
                 ))
                 .font(.system(size: 13))
-                .frame(minHeight: 140)
+                .frame(minHeight: 88, maxHeight: 120)
                 Text(model.styleCountLabel)
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            Section {
-                HStack(spacing: 8) {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 160), spacing: 8, alignment: .leading)],
+                    alignment: .leading,
+                    spacing: 8
+                ) {
                     ForEach(examples, id: \.self) { example in
                         Button(example) { model.insertStyleExample(example) }
                             .buttonStyle(.bordered)
@@ -290,14 +240,57 @@ private struct StyleTab: View {
         }
         .formStyle(.grouped)
     }
+
+    private func permissionRow(_ title: String, status: String, ok: Bool, action: @escaping () -> Void) -> some View {
+        LabeledContent {
+            Button("Open…", action: action)
+        } label: {
+            Text(title)
+            Text(status)
+                .foregroundStyle(ok ? Color.secondary : Color.red)
+        }
+    }
+
+    private func shortcutRow(_ title: String, shortcut: KeyShortcut, action: String) -> some View {
+        LabeledContent(title) {
+            VStack(alignment: .trailing, spacing: 4) {
+                ShortcutRecorder(
+                    shortcut: shortcut,
+                    onCommit: { model.setShortcut($0, action: action) }
+                )
+                if model.conflict(for: action) {
+                    Text("In use by another app")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+    }
 }
 
-private struct ModelTab: View {
+private struct AboutTab: View {
     let model: SettingsModel
 
     var body: some View {
         Form {
             Section {
+                VStack(spacing: 8) {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .frame(width: 72, height: 72)
+                    Text("Fixyy")
+                        .font(.headline)
+                    Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")")
+                        .foregroundStyle(.secondary)
+                    Text("On-device only. Nothing leaves this Mac.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+            }
+            Section("Model") {
                 LabeledContent("Variant", value: model.info.variantName)
                 LabeledContent("Availability", value: model.info.availability.settingsLabel)
                 LabeledContent("Context size", value: "\(model.info.contextSize.formatted()) tokens")
@@ -319,7 +312,7 @@ private struct ModelTab: View {
                 case .idle:
                     EmptyView()
                 case .running:
-                    HStack {
+                    HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
                         Text("Testing the on-device model…")
                             .foregroundStyle(.secondary)
@@ -330,13 +323,16 @@ private struct ModelTab: View {
                             .font(.system(size: 12))
                             .textSelection(.enabled)
                         Text("\(String(format: "%.1f", latency)) s\(tokens.map { " · \($0.formatted()) tok" } ?? "")")
-                            .font(.system(size: 11))
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 case .failed(let message):
                     Text(message)
                         .foregroundStyle(.red)
                 }
+            }
+            Section {
+                Button("Quit Fixyy", role: .destructive) { model.quit() }
             }
         }
         .formStyle(.grouped)
@@ -345,27 +341,5 @@ private struct ModelTab: View {
     private var isRunning: Bool {
         if case .running = model.selfTest { return true }
         return false
-    }
-}
-
-private struct AboutTab: View {
-    let model: SettingsModel
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            Image(nsImage: NSApp.applicationIconImage)
-                .resizable()
-                .frame(width: 96, height: 96)
-            Text("Fixyy")
-                .font(.system(size: 20, weight: .semibold))
-            Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")")
-                .foregroundStyle(.secondary)
-            Text("On-device only. Nothing leaves this Mac.")
-                .foregroundStyle(.secondary)
-            Button("Quit Fixyy") { model.quit() }
-            Spacer()
-        }
-        .frame(maxWidth: .infinity)
     }
 }

@@ -195,7 +195,7 @@ struct FixHUDView: View {
             HStack(spacing: 8) {
                 ProgressView()
                     .controlSize(.small)
-                Text("Fixing…")
+                Text("Fixing")
                     .font(.system(size: 13))
             }
         case .fixed(let segments):
@@ -229,6 +229,7 @@ struct FixHUDView: View {
                     .foregroundStyle(.orange)
                 Text(error.message)
                     .font(.system(size: 13))
+                    .fixedSize(horizontal: false, vertical: true)
                 if let action = error.action, action != .retry || model.retry != nil {
                     Button(actionTitle(error)) { runAction(error) }
                         .buttonStyle(.bordered)

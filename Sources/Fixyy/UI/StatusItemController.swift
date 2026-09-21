@@ -67,8 +67,8 @@ public final class StatusItemController: NSObject {
         menu.removeAllItems()
         menu.addItem(statusRow())
         menu.addItem(.separator())
-        menu.addItem(actionItem("Fix Selection", shortcut: Prefs.shared.fixShortcut.display, action: #selector(menuFix)))
-        menu.addItem(actionItem("Rewrite Selection…", shortcut: Prefs.shared.rewriteShortcut.display, action: #selector(menuRewrite)))
+        menu.addItem(item("Fix Selection", shortcut: Prefs.shared.fixShortcut, action: #selector(menuFix)))
+        menu.addItem(item("Rewrite Selection", shortcut: Prefs.shared.rewriteShortcut, action: #selector(menuRewrite)))
         if let job = lastJobProvider?() {
             menu.addItem(.separator())
             let last = NSMenuItem(title: "Last: \(job.menuLabel)", action: nil, keyEquivalent: "")
@@ -76,8 +76,8 @@ public final class StatusItemController: NSObject {
             menu.addItem(last)
         }
         menu.addItem(.separator())
-        menu.addItem(commandItem("Settings…", key: ",", action: #selector(menuSettings)))
-        menu.addItem(commandItem("Quit Fixyy", key: "q", action: #selector(menuQuit)))
+        menu.addItem(item("Settings", key: ",", modifiers: [.command], action: #selector(menuSettings)))
+        menu.addItem(item("Quit Fixyy", key: "q", modifiers: [.command], action: #selector(menuQuit)))
     }
 
     private func captureAppBeforeMenu(_ app: NSRunningApplication?) {
@@ -101,15 +101,13 @@ public final class StatusItemController: NSObject {
         return row
     }
 
-    private func commandItem(_ title: String, key: String, action: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
-        item.keyEquivalentModifierMask = [.command]
-        item.target = self
-        return item
+    private func item(_ title: String, shortcut: KeyShortcut, action: Selector) -> NSMenuItem {
+        item(title, key: shortcut.menuKeyEquivalent, modifiers: shortcut.menuModifierMask, action: action)
     }
 
-    private func actionItem(_ title: String, shortcut: String, action: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: "\(title)\t\(shortcut)", action: action, keyEquivalent: "")
+    private func item(_ title: String, key: String, modifiers: NSEvent.ModifierFlags, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        item.keyEquivalentModifierMask = modifiers
         item.target = self
         return item
     }

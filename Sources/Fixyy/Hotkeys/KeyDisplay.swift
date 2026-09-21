@@ -52,6 +52,32 @@ public struct KeyShortcut: Codable, Equatable, Sendable {
 
     public var display: String { KeyDisplay.string(keyCode: keyCode, modifiers: modifiers) }
 
+    public var menuKeyEquivalent: String {
+        switch keyCode {
+        case 36: return "\r"
+        case 48: return "\t"
+        case 49: return " "
+        case 51: return "\u{8}"
+        case 53: return "\u{1b}"
+        case 123: return String(UnicodeScalar(NSLeftArrowFunctionKey)!)
+        case 124: return String(UnicodeScalar(NSRightArrowFunctionKey)!)
+        case 125: return String(UnicodeScalar(NSDownArrowFunctionKey)!)
+        case 126: return String(UnicodeScalar(NSUpArrowFunctionKey)!)
+        default:
+            guard let name = KeyDisplay.keyNames[keyCode], name.count == 1 else { return "" }
+            return name.lowercased()
+        }
+    }
+
+    public var menuModifierMask: NSEvent.ModifierFlags {
+        var flags: NSEvent.ModifierFlags = []
+        if modifiers & KeyDisplay.cmd != 0 { flags.insert(.command) }
+        if modifiers & KeyDisplay.shift != 0 { flags.insert(.shift) }
+        if modifiers & KeyDisplay.option != 0 { flags.insert(.option) }
+        if modifiers & KeyDisplay.control != 0 { flags.insert(.control) }
+        return flags
+    }
+
     public static let fixDefault = KeyShortcut(keyCode: 5, modifiers: KeyDisplay.cmd | KeyDisplay.shift) // ⌘⇧G
     public static let rewriteDefault = KeyShortcut(keyCode: 15, modifiers: KeyDisplay.cmd | KeyDisplay.shift) // ⌘⇧R
 }
