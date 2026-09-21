@@ -9,11 +9,12 @@ Requires **macOS 26+**, Apple Silicon, and Apple Intelligence.
 1. Download **Fixyy-*.dmg** from [Releases](https://github.com/zxcodes/fixyy/releases).
 2. Open it. Drag **Fixyy** onto the **Applications** folder in that window.
 3. Eject the disk image, then open Fixyy from Applications. It lives in the **menu bar**, not the Dock.
-4. Grant **Accessibility** when asked (System Settings → Privacy & Security → Accessibility).
+4. macOS 26 will refuse the first launch with **Done** / **Move to Bin** — click **Done**, not Move to Bin. Then System Settings → **Privacy & Security**, scroll to the bottom, **Open Anyway**.
+5. Grant **Accessibility** when asked (System Settings → Privacy & Security → Accessibility).
 
 Opening the `.app` from Downloads also works, but it won’t show the drag-to-Applications panel — that’s the disk image. Putting it in Applications is what you want for Login items and Accessibility.
 
-If macOS says the app can’t be opened, that’s Gatekeeper: right-click Fixyy.app → **Open**. Apple only skips that warning after the build is signed with an Apple Developer ID **and notarized** — a self-signed build cannot.
+That malware dialog is Gatekeeper. Double-click and right-click → Open no longer bypass it. **Open Anyway** in Privacy & Security does. To skip the warning entirely you need an Apple Developer ID and notarization; a self-signed build cannot.
 
 ## Use
 

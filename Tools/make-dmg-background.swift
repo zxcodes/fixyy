@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreText
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -27,7 +28,7 @@ else {
 context.setFillColor(CGColor(srgbRed: 0.145, green: 0.145, blue: 0.153, alpha: 1))
 context.fill(CGRect(x: 0, y: 0, width: width, height: height))
 
-let arrowY = CGFloat(height) * 0.48
+let arrowY = CGFloat(height) * 0.52
 let startX = CGFloat(width) * 0.40
 let endX = CGFloat(width) * 0.60
 let shaft = CGFloat(height) * 0.012
@@ -47,6 +48,23 @@ tip.addLine(to: CGPoint(x: endX, y: arrowY))
 tip.addLine(to: CGPoint(x: endX - head * 1.15, y: arrowY + head))
 context.addPath(tip)
 context.fillPath()
+
+func drawCentered(_ string: String, y: CGFloat, size: CGFloat, alpha: CGFloat) {
+    let font = CTFontCreateWithName("Helvetica" as CFString, size, nil)
+    let color = CGColor(srgbRed: 0.72, green: 0.72, blue: 0.76, alpha: alpha)
+    let attrs: [CFString: Any] = [
+        kCTFontAttributeName: font,
+        kCTForegroundColorAttributeName: color,
+    ]
+    let attr = CFAttributedStringCreate(nil, string as CFString, attrs as CFDictionary)!
+    let line = CTLineCreateWithAttributedString(attr)
+    let bounds = CTLineGetBoundsWithOptions(line, [])
+    context.textPosition = CGPoint(x: (CGFloat(width) - bounds.width) / 2, y: y)
+    CTLineDraw(line, context)
+}
+
+drawCentered("If macOS blocks it, click Done, then", y: 36, size: 11, alpha: 0.9)
+drawCentered("System Settings → Privacy & Security → Open Anyway", y: 20, size: 11, alpha: 0.9)
 
 guard let image = context.makeImage() else {
     fputs("Could not create image\n", stderr)
