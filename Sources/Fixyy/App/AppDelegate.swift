@@ -90,6 +90,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         quitItem.target = self
         appMenu.addItem(quitItem)
         appItem.submenu = appMenu
+
+        let fileItem = NSMenuItem()
+        mainMenu.addItem(fileItem)
+        let fileMenu = NSMenu(title: "File")
+        fileMenu.addItem(NSMenuItem(title: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
+        fileItem.submenu = fileMenu
+
         NSApp.mainMenu = mainMenu
     }
 

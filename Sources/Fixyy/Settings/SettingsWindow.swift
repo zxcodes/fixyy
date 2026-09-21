@@ -2,6 +2,10 @@ import AppKit
 import ServiceManagement
 import SwiftUI
 
+enum SettingsChrome {
+    static let radius: CGFloat = 6
+}
+
 @MainActor
 public final class SettingsWindowController {
     private var window: NSWindow?
@@ -79,6 +83,7 @@ final class SettingsModel {
     var conflicts: [String: String] = [:]
     var selfTest: SelfTestState = .idle
     var pane: SettingsPane = .general
+    var paneHover: SettingsPane?
 
     let prefs: Prefs
     let language: LanguageGenerating
@@ -197,14 +202,57 @@ struct SettingsView: View {
         .frame(width: 500)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Picker("Settings", selection: $model.pane) {
-                    ForEach(SettingsPane.allCases) { pane in
-                        Text(pane.title).tag(pane)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(minWidth: 180)
+                SettingsPanePicker(model: model)
             }
+        }
+    }
+}
+
+private struct SettingsPanePicker: View {
+    @Bindable var model: SettingsModel
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(SettingsPane.allCases) { pane in
+                paneButton(pane)
+            }
+        }
+        .padding(3)
+        .frame(width: 186)
+        .background(Color.primary.opacity(0.08), in: Capsule())
+        .animation(.easeInOut(duration: 0.15), value: model.pane)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Settings")
+    }
+
+    private func paneButton(_ pane: SettingsPane) -> some View {
+        let selected = model.pane == pane
+        return Button {
+            model.pane = pane
+        } label: {
+            Text(pane.title)
+                .font(.system(size: 13, weight: selected ? .medium : .regular))
+                .frame(maxWidth: .infinity, minHeight: 22)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .background { knob(selected: selected, hovering: model.paneHover == pane) }
+        .onHover { inside in
+            if inside {
+                model.paneHover = pane
+            } else if model.paneHover == pane {
+                model.paneHover = nil
+            }
+        }
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private func knob(selected: Bool, hovering: Bool) -> some View {
+        if selected {
+            Capsule().fill(Color(nsColor: .controlColor))
+        } else if hovering {
+            Capsule().fill(Color.primary.opacity(0.08))
         }
     }
 }
@@ -245,27 +293,43 @@ private struct GeneralTab: View {
                 shortcutRow("Rewrite", shortcut: model.rewriteShortcut, action: "rewrite")
             }
             Section("Style") {
-                TextEditor(text: Binding(
-                    get: { model.styleNote },
-                    set: { model.styleNote = $0; model.persistStyle() }
-                ))
-                .font(.system(size: 13))
-                .frame(minHeight: 88, maxHeight: 120)
-                Text(model.styleCountLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 160), spacing: 8, alignment: .leading)],
-                    alignment: .leading,
-                    spacing: 8
-                ) {
-                    ForEach(examples, id: \.self) { example in
-                        Button(example) { model.insertStyleExample(example) }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
+                VStack(alignment: .leading, spacing: 10) {
+                    ZStack(alignment: .bottomTrailing) {
+                        TextEditor(text: Binding(
+                            get: { model.styleNote },
+                            set: { model.styleNote = $0; model.persistStyle() }
+                        ))
+                        .font(.system(size: 13))
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 88, maxHeight: 120)
+                        Text(model.styleCountLabel)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                    }
+                    .padding(6)
+                    .background(
+                        Color(nsColor: .textBackgroundColor),
+                        in: RoundedRectangle(cornerRadius: SettingsChrome.radius, style: .continuous)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: SettingsChrome.radius, style: .continuous)
+                            .strokeBorder(Color(nsColor: .separatorColor).opacity(0.65), lineWidth: 1)
+                    )
+
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 150), spacing: 8, alignment: .leading)],
+                        alignment: .leading,
+                        spacing: 8
+                    ) {
+                        ForEach(examples, id: \.self) { example in
+                            Button(example) { model.insertStyleExample(example) }
+                                .buttonStyle(SettingsChipStyle())
+                        }
                     }
                 }
+                .padding(.vertical, 2)
             }
         }
         .formStyle(.grouped)
@@ -288,6 +352,7 @@ private struct GeneralTab: View {
                     shortcut: shortcut,
                     onCommit: { model.setShortcut($0, action: action) }
                 )
+                .frame(width: 128, height: 24)
                 if let message = model.conflict(for: action) {
                     Text(message)
                         .font(.caption)
@@ -348,10 +413,20 @@ private struct AboutTab: View {
                             .foregroundStyle(.secondary)
                     }
                 case .done(let result, let latency, let tokens):
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 6) {
                         Text(result)
                             .font(.system(size: 12))
                             .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                            .background(
+                                Color(nsColor: .textBackgroundColor),
+                                in: RoundedRectangle(cornerRadius: SettingsChrome.radius, style: .continuous)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: SettingsChrome.radius, style: .continuous)
+                                    .strokeBorder(Color(nsColor: .separatorColor).opacity(0.65), lineWidth: 1)
+                            )
                         Text("\(String(format: "%.1f", latency)) s\(tokens.map { " · \($0.formatted()) tok" } ?? "")")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -371,5 +446,25 @@ private struct AboutTab: View {
     private var isRunning: Bool {
         if case .running = model.selfTest { return true }
         return false
+    }
+}
+
+private struct SettingsChipStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12))
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity)
+            .background(
+                Color(nsColor: .textBackgroundColor),
+                in: RoundedRectangle(cornerRadius: SettingsChrome.radius, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: SettingsChrome.radius, style: .continuous)
+                    .strokeBorder(Color(nsColor: .separatorColor).opacity(0.65), lineWidth: 1)
+            )
+            .opacity(configuration.isPressed ? 0.72 : 1)
     }
 }

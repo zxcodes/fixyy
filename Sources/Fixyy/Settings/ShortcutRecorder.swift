@@ -14,13 +14,14 @@ final class ShortcutRecorderView: NSView {
     init(shortcut: KeyShortcut, onCommit: @escaping (KeyShortcut?) -> Void) {
         self.shortcut = shortcut
         self.onCommit = onCommit
-        super.init(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        super.init(frame: NSRect(x: 0, y: 0, width: 128, height: 24))
     }
 
     required init?(coder: NSCoder) { nil }
 
     override var acceptsFirstResponder: Bool { true }
-    override var intrinsicContentSize: NSSize { NSSize(width: 120, height: 24) }
+    override var isOpaque: Bool { false }
+    override var intrinsicContentSize: NSSize { NSSize(width: 128, height: 24) }
 
     override func mouseDown(with event: NSEvent) {
         recording = true
@@ -78,10 +79,15 @@ final class ShortcutRecorderView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let bounds = self.bounds.insetBy(dx: 0.5, dy: 0.5)
-        let path = NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6)
-        (recording ? NSColor.controlAccentColor : NSColor.separatorColor).setStroke()
-        path.lineWidth = recording ? 1.5 : 1
+        NSColor.clear.setFill()
+        bounds.fill()
+
+        let rect = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let path = NSBezierPath(roundedRect: rect, xRadius: SettingsChrome.radius, yRadius: SettingsChrome.radius)
+        NSColor.textBackgroundColor.setFill()
+        path.fill()
+        (recording ? NSColor.controlAccentColor : NSColor.separatorColor.withAlphaComponent(0.65)).setStroke()
+        path.lineWidth = 1
         path.stroke()
 
         let text = recording ? "Type shortcut" : shortcut.display
@@ -90,7 +96,7 @@ final class ShortcutRecorderView: NSView {
             .foregroundColor: recording ? NSColor.secondaryLabelColor : NSColor.labelColor,
         ]
         let size = (text as NSString).size(withAttributes: attributes)
-        let origin = NSPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2)
+        let origin = NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2)
         (text as NSString).draw(at: origin, withAttributes: attributes)
     }
 }
@@ -100,7 +106,10 @@ struct ShortcutRecorder: NSViewRepresentable {
     let onCommit: (KeyShortcut?) -> Void
 
     func makeNSView(context: Context) -> ShortcutRecorderView {
-        ShortcutRecorderView(shortcut: shortcut, onCommit: onCommit)
+        let view = ShortcutRecorderView(shortcut: shortcut, onCommit: onCommit)
+        view.setContentHuggingPriority(.required, for: .vertical)
+        view.setContentHuggingPriority(.required, for: .horizontal)
+        return view
     }
 
     func updateNSView(_ view: ShortcutRecorderView, context: Context) {
