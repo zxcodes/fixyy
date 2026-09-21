@@ -21,6 +21,7 @@ public final class RewriteCardController: NSObject, NSWindowDelegate {
     private var editable = true
     private var mode: RewriteKind?
     private var generateTask: Task<Void, Never>?
+    private var applyTask: Task<Void, Never>?
     private var jobStart: ContinuousClock.Instant?
     private var generationID = UUID()
     private var tearingDown = false
@@ -54,6 +55,7 @@ public final class RewriteCardController: NSObject, NSWindowDelegate {
     public func present(sourceText: String, editable: Bool, promptTokens: Int? = nil) {
         generationID = UUID()
         generateTask?.cancel()
+        applyTask?.cancel()
         self.sourceText = sourceText
         self.promptTokens = promptTokens
         self.editable = editable
@@ -96,6 +98,14 @@ public final class RewriteCardController: NSObject, NSWindowDelegate {
         if error.opensIntelligenceSettings { SettingsLinks.openIntelligence() }
     }
 
+    public func cancelJobs() async {
+        generationID = UUID()
+        generateTask?.cancel()
+        applyTask?.cancel()
+        await generateTask?.value
+        await applyTask?.value
+    }
+
     public func dismiss() {
         status?.hide()
         teardown(orderOut: true)
@@ -115,6 +125,7 @@ public final class RewriteCardController: NSObject, NSWindowDelegate {
         tearingDown = true
         generationID = UUID()
         generateTask?.cancel()
+        applyTask?.cancel()
         if orderOut {
             window?.orderOut(nil)
         }
@@ -170,16 +181,10 @@ public final class RewriteCardController: NSObject, NSWindowDelegate {
                 self.status?.hide()
             } catch let error as AppError {
                 guard self.generationID == generationID else { return }
-                self.model.running = false
-                self.model.banner = error
-                self.status?.showError(error)
-                self.report(.error(error))
+                self.failGeneration(error)
             } catch {
                 guard self.generationID == generationID else { return }
-                self.model.running = false
-                self.model.banner = .stalled
-                self.status?.showError(.stalled)
-                self.report(.error(.stalled))
+                self.failGeneration(.stalled)
             }
         }
     }
@@ -192,14 +197,24 @@ public final class RewriteCardController: NSObject, NSWindowDelegate {
         if let mode { run(mode) }
     }
 
+    private func failGeneration(_ error: AppError) {
+        model.running = false
+        model.hasResult = false
+        model.banner = error
+        status?.showError(error)
+        report(.error(error))
+    }
+
     private func apply() {
         let text = resultText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         generationID = UUID()
         generateTask?.cancel()
-        Task { [weak self] in
+        applyTask?.cancel()
+        applyTask = Task { [weak self] in
             guard let self else { return }
             await self.selection.paste(text)
+            guard !Task.isCancelled else { return }
             self.status?.showSuccess("Rewritten")
             self.report(.applied)
             self.dismissKeepingStatus()
@@ -211,6 +226,7 @@ public final class RewriteCardController: NSObject, NSWindowDelegate {
         guard !text.isEmpty else { return }
         generationID = UUID()
         generateTask?.cancel()
+        applyTask?.cancel()
         selection.leaveOnClipboard(text)
         status?.showSuccess("Copied")
         report(.copied)
@@ -419,7 +435,7 @@ private struct RewriteView: View {
                 Button("Apply") { model.onApply?() }
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.hasResult || model.running)
-                    .keyboardShortcut(.defaultAction)
+                    .keyboardShortcut(.return, modifiers: .command)
             }
         }
     }

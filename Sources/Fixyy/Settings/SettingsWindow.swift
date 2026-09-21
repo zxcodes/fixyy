@@ -6,6 +6,7 @@ import SwiftUI
 public final class SettingsWindowController {
     private var window: NSWindow?
     private var model: SettingsModel?
+    private var pendingConflicts: [String: String] = [:]
     private let prefs: Prefs
     private let language: LanguageGenerating
     private let selection: SelectionHandling
@@ -34,6 +35,7 @@ public final class SettingsWindowController {
             return
         }
         let model = SettingsModel(prefs: prefs, model: language, selection: selection, info: info, lastJob: lastJob)
+        model.conflicts = pendingConflicts
         self.model = model
         let hosting = NSHostingController(rootView: SettingsView(model: model))
         let window = NSWindow(contentViewController: hosting)
@@ -48,7 +50,8 @@ public final class SettingsWindowController {
         window.makeKeyAndOrderFront(nil)
     }
 
-    public func updateShortcutConflicts(_ conflicts: [String: Bool]) {
+    public func updateShortcutConflicts(_ conflicts: [String: String]) {
+        pendingConflicts = conflicts
         model?.conflicts = conflicts
     }
 }
@@ -73,7 +76,7 @@ final class SettingsModel {
     var styleNote: String
     var launchesAtLogin: Bool
     var accessibilityGranted: Bool
-    var conflicts: [String: Bool] = [:]
+    var conflicts: [String: String] = [:]
     var selfTest: SelfTestState = .idle
     var pane: SettingsPane = .general
 
@@ -149,8 +152,8 @@ final class SettingsModel {
         }
     }
 
-    func conflict(for action: String) -> Bool {
-        conflicts[action] == true
+    func conflict(for action: String) -> String? {
+        conflicts[action]
     }
 
     func runSelfTest() {
@@ -285,8 +288,8 @@ private struct GeneralTab: View {
                     shortcut: shortcut,
                     onCommit: { model.setShortcut($0, action: action) }
                 )
-                if model.conflict(for: action) {
-                    Text("In use by another app")
+                if let message = model.conflict(for: action) {
+                    Text(message)
                         .font(.caption)
                         .foregroundStyle(.red)
                 }

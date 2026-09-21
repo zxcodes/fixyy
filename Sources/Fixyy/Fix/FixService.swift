@@ -7,7 +7,7 @@ public final class FixService {
     private let prefs: Prefs
     private let hud: HUDPresenting
     private let budget: TokenBudget
-    private var inFlight = false
+    private var runGeneration = 0
 
     public var onJob: ((JobSummary) -> Void)?
 
@@ -26,9 +26,8 @@ public final class FixService {
     }
 
     public func run() async {
-        if inFlight { return }
-        inFlight = true
-        defer { inFlight = false }
+        runGeneration += 1
+        let generation = runGeneration
         let start = ContinuousClock.now
         hud.showWorking()
         do {
@@ -51,10 +50,12 @@ public final class FixService {
                 }
                 let result = try await model.fixGrammar(text: text, styleNote: prefs.styleNote)
                 try Task.checkCancellation()
+                guard generation == runGeneration else { return }
                 let latency = ContinuousClock.now - start
                 let outputTokens = await model.tokenCount(instructions: "", prompt: result.text) ?? result.text.count / 4
                 if result.hasChanges {
                     await selection.paste(result.text)
+                    guard generation == runGeneration, !Task.isCancelled else { return }
                     let original = text
                     let diff = TextDiff.segments(from: original, to: result.text)
                     hud.showFixed(diff: diff) { [weak self] in
@@ -67,13 +68,17 @@ public final class FixService {
                 }
             }
         } catch is CancellationError {
+            guard generation == runGeneration else { return }
             hud.showCancelled()
         } catch let error as AppError where error == .cancelled {
+            guard generation == runGeneration else { return }
             hud.showCancelled()
         } catch let error as AppError {
+            guard generation == runGeneration else { return }
             present(error)
             report(kind: .fix, promptTokens: nil, outputTokens: nil, latency: ContinuousClock.now - start, outcome: .error(error))
         } catch {
+            guard generation == runGeneration else { return }
             present(.stalled)
             report(kind: .fix, promptTokens: nil, outputTokens: nil, latency: ContinuousClock.now - start, outcome: .error(.stalled))
         }

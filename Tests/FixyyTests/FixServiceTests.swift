@@ -55,6 +55,19 @@ final class FixServiceTests: XCTestCase {
         XCTAssertTrue(env.selection.pasted.isEmpty)
     }
 
+    func testRunAfterCancelStillPastes() async {
+        let env = Env()
+        env.selection.captureDelayNanoseconds = 400_000_000
+        env.model.fixHandler = { _, _ in FixResult(hasChanges: true, text: "He goes to the store.") }
+        let first = Task { await env.service.run() }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        first.cancel()
+        await env.service.run()
+        await first.value
+        XCTAssertEqual(env.selection.pasted, ["He goes to the store."])
+        XCTAssertGreaterThanOrEqual(env.selection.captureCalls, 2)
+    }
+
     func testUndoInvokesHostUndo() async {
         let env = Env()
         env.model.fixHandler = { _, _ in FixResult(hasChanges: true, text: "He goes to the store.") }
@@ -103,12 +116,12 @@ final class FixServiceTests: XCTestCase {
         let selection = FakeSelection()
         let hud = HUDSpy()
         let prefs: Prefs
-        var service: FixService {
-            FixService(model: model, selection: selection, prefs: prefs, hud: hud)
-        }
+        let service: FixService
 
         init() {
-            prefs = Prefs(defaults: UserDefaults(suiteName: "fixyy.tests.\(UUID().uuidString)")!)
+            let prefs = Prefs(defaults: UserDefaults(suiteName: "fixyy.tests.\(UUID().uuidString)")!)
+            self.prefs = prefs
+            self.service = FixService(model: model, selection: selection, prefs: prefs, hud: hud)
         }
     }
 }

@@ -18,6 +18,7 @@ public final class JobCoordinator {
     private let card: RewriteCardController
     private let budget: TokenBudget
     private var work: Task<Void, Never>?
+    private var jobToken = UUID()
 
     public init(
         fix: FixService,
@@ -48,21 +49,30 @@ public final class JobCoordinator {
             return
         }
         if phase == .rewriting { return }
-        work?.cancel()
-        phase = .fixing
-        work = Task { [weak self] in
-            guard let self else { return }
-            await self.fix.run()
-            if self.phase == .fixing { self.phase = .idle }
+        startJob(as: .fixing) { coordinator in
+            await coordinator.fix.run()
+            if coordinator.phase == .fixing { coordinator.phase = .idle }
         }
     }
 
     public func handleRewrite() {
+        startJob(as: .rewriting) { coordinator in
+            await coordinator.card.cancelJobs()
+            await coordinator.openRewrite()
+        }
+    }
+
+    private func startJob(as phase: Phase, body: @escaping (JobCoordinator) async -> Void) {
         work?.cancel()
-        phase = .rewriting
+        let previous = work
+        let token = UUID()
+        jobToken = token
+        self.phase = phase
         work = Task { [weak self] in
             guard let self else { return }
-            await self.openRewrite()
+            await previous?.value
+            guard !Task.isCancelled, self.jobToken == token else { return }
+            await body(self)
         }
     }
 
@@ -100,12 +110,25 @@ public final class JobCoordinator {
                 }
                 card.present(sourceText: text, editable: selection.isEditableField, promptTokens: promptTokens)
             }
+        } catch is CancellationError {
+            return
         } catch let error as AppError {
+            guard let error = Self.rewriteError(from: error) else { return }
             card.present(sourceText: "", editable: false, promptTokens: nil)
             card.presentError(error)
         } catch {
+            if Task.isCancelled { return }
+            guard let error = Self.rewriteError(from: error) else { return }
             card.present(sourceText: "", editable: false, promptTokens: nil)
-            card.presentError(.stalled)
+            card.presentError(error)
         }
+    }
+
+    nonisolated static func rewriteError(from error: Error) -> AppError? {
+        if error is CancellationError { return nil }
+        if let error = error as? AppError {
+            return error == .cancelled ? nil : error
+        }
+        return .stalled
     }
 }

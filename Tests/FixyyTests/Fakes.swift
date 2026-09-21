@@ -75,8 +75,17 @@ final class FakeSelection: SelectionHandling {
     var undoCalls = 0
     var clipboard: String?
     var trustPrompts = 0
+    var captureDelayNanoseconds: UInt64 = 0
+    var captureCalls = 0
 
-    func capture() async throws -> SelectionCapture { captureResult }
+    func capture() async throws -> SelectionCapture {
+        captureCalls += 1
+        if captureDelayNanoseconds > 0 {
+            try await Task.sleep(nanoseconds: captureDelayNanoseconds)
+        }
+        try Task.checkCancellation()
+        return captureResult
+    }
     func paste(_ text: String) async { pasted.append(text) }
     func undoLastPaste() async { undoCalls += 1 }
     func leaveOnClipboard(_ text: String) { clipboard = text }

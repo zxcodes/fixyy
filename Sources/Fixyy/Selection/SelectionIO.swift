@@ -21,13 +21,14 @@ public final class SelectionIO: SelectionHandling {
 
     public func capture() async throws -> SelectionCapture {
         guard isTrusted else { throw AppError.accessibilityDenied }
+        guard try await focusSourceAppIfNeeded() else { return .empty }
         if isSecureFieldFocused() { return .secure }
 
-        previousApp = NSWorkspace.shared.frontmostApplication
         let snapshot = PasteboardSnapshot(pasteboard: pasteboard)
         let sentinel = "fixyy.sentinel.\(UUID().uuidString)"
         pasteboard.clearContents()
         pasteboard.setString(sentinel, forType: .string)
+        defer { snapshot.restore(to: pasteboard) }
 
         // Let the hotkey modifiers finish releasing.
         try await Task.sleep(for: .milliseconds(50))
@@ -43,8 +44,6 @@ public final class SelectionIO: SelectionHandling {
             }
         }
 
-        snapshot.restore(to: pasteboard)
-
         guard let text, !text.isEmpty else { return .empty }
         return .text(text)
     }
@@ -53,11 +52,16 @@ public final class SelectionIO: SelectionHandling {
         let snapshot = PasteboardSnapshot(pasteboard: pasteboard)
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+        defer { snapshot.restore(to: pasteboard) }
         previousApp?.activate()
-        try? await Task.sleep(for: .milliseconds(80))
-        postCommand(virtualKey: 9) // V
-        try? await Task.sleep(for: .milliseconds(350))
-        snapshot.restore(to: pasteboard)
+        do {
+            try await Task.sleep(for: .milliseconds(80))
+            try Task.checkCancellation()
+            postCommand(virtualKey: 9) // V
+            try await Task.sleep(for: .milliseconds(350))
+        } catch {
+            return
+        }
     }
 
     public func undoLastPaste() async {
@@ -86,13 +90,38 @@ public final class SelectionIO: SelectionHandling {
         return true
     }
 
+    private func focusSourceAppIfNeeded() async throws -> Bool {
+        let front = NSWorkspace.shared.frontmostApplication
+        if isOwnApp(front) {
+            guard let source = previousApp, !isOwnApp(source) else { return false }
+            source.activate()
+            try await Task.sleep(for: .milliseconds(80))
+            return true
+        }
+        previousApp = front
+        return true
+    }
+
+    private func isOwnApp(_ app: NSRunningApplication?) -> Bool {
+        guard let app else { return false }
+        if app.processIdentifier == ProcessInfo.processInfo.processIdentifier { return true }
+        if let mine = Bundle.main.bundleIdentifier, app.bundleIdentifier == mine { return true }
+        return false
+    }
+
     private func isSecureFieldFocused() -> Bool {
         guard let element = focusedElement() else { return false }
-        var role: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .success,
-              let roleName = role as? String
-        else { return false }
-        return roleName == "AXSecureTextField"
+        if axString(element, kAXRoleAttribute as String) == "AXSecureTextField" { return true }
+        if axString(element, kAXSubroleAttribute as String) == "AXSecureTextField" { return true }
+        return false
+    }
+
+    private func axString(_ element: AXUIElement, _ attribute: String) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
+            return nil
+        }
+        return value as? String
     }
 
     private func focusedElement() -> AXUIElement? {

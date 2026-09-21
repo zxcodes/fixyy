@@ -27,22 +27,38 @@ final class ShortcutRecorderView: NSView {
         window?.makeFirstResponder(self)
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard recording else { return super.performKeyEquivalent(with: event) }
+        return interpretRecordedKey(event)
+    }
+
     override func keyDown(with event: NSEvent) {
         guard recording else {
             super.keyDown(with: event)
             return
         }
+        _ = interpretRecordedKey(event)
+    }
+
+    @discardableResult
+    private func interpretRecordedKey(_ event: NSEvent) -> Bool {
         if event.keyCode == 53 {
             cancelRecording()
-            return
+            return true
         }
         if event.keyCode == 51 {
-            finish(committing: nil)
-            return
+            let modifiers = KeyDisplay.carbonModifiers(from: event.modifierFlags)
+            if modifiers == 0 {
+                finish(committing: nil)
+            } else {
+                finish(committing: KeyShortcut(keyCode: UInt32(event.keyCode), modifiers: modifiers))
+            }
+            return true
         }
         let modifiers = KeyDisplay.carbonModifiers(from: event.modifierFlags)
-        guard modifiers != 0 else { return }
+        guard modifiers != 0 else { return true }
         finish(committing: KeyShortcut(keyCode: UInt32(event.keyCode), modifiers: modifiers))
+        return true
     }
 
     override func resignFirstResponder() -> Bool {

@@ -105,14 +105,26 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func registerHotkeys() {
         guard let prefs, let coordinator else { return }
         HotKeyCenter.shared.unregisterAll()
-        var conflicts: [String: Bool] = [:]
+        var conflicts: [String: String] = [:]
         let fix = prefs.fixShortcut
-        conflicts["fix"] = !HotKeyCenter.shared.register(keyCode: fix.keyCode, modifiers: fix.modifiers) {
-            coordinator.handleFix()
-        }
         let rewrite = prefs.rewriteShortcut
-        conflicts["rewrite"] = !HotKeyCenter.shared.register(keyCode: rewrite.keyCode, modifiers: rewrite.modifiers) {
-            coordinator.handleRewrite()
+        if fix == rewrite {
+            conflicts["fix"] = "Same as Rewrite"
+            conflicts["rewrite"] = "Same as Fix"
+            _ = HotKeyCenter.shared.register(keyCode: fix.keyCode, modifiers: fix.modifiers) {
+                coordinator.handleFix()
+            }
+        } else {
+            if !HotKeyCenter.shared.register(keyCode: fix.keyCode, modifiers: fix.modifiers, action: {
+                coordinator.handleFix()
+            }) {
+                conflicts["fix"] = "In use by another app"
+            }
+            if !HotKeyCenter.shared.register(keyCode: rewrite.keyCode, modifiers: rewrite.modifiers, action: {
+                coordinator.handleRewrite()
+            }) {
+                conflicts["rewrite"] = "In use by another app"
+            }
         }
         settings?.updateShortcutConflicts(conflicts)
     }
