@@ -36,7 +36,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             fix: fix,
             rewrite: rewrite,
             selection: selection,
-            model: model,
             card: card,
             budget: budget
         )
@@ -70,6 +69,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.registerHotkeys()
         }
         registerHotkeys()
+        model.prewarm()
 
         if !prefs.hasCompletedOnboarding || !selection.isTrusted {
             onboarding.show()

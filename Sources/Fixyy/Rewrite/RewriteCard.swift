@@ -96,17 +96,6 @@ public final class RewriteCardController: NSObject, NSWindowDelegate {
         if error.opensIntelligenceSettings { SettingsLinks.openIntelligence() }
     }
 
-    public func cycleMode() {
-        let modes = RewriteKind.modes
-        let next: RewriteKind
-        if let active = mode, let index = modes.firstIndex(of: active) {
-            next = modes[(index + 1) % modes.count]
-        } else {
-            next = modes[0]
-        }
-        run(next)
-    }
-
     public func dismiss() {
         status?.hide()
         teardown(orderOut: true)
@@ -129,6 +118,7 @@ public final class RewriteCardController: NSObject, NSWindowDelegate {
         if orderOut {
             window?.orderOut(nil)
         }
+        selection.reactivateSourceApp()
         onDismiss?()
         tearingDown = false
     }
@@ -151,13 +141,20 @@ public final class RewriteCardController: NSObject, NSWindowDelegate {
         generateTask = Task { [weak self] in
             guard let self else { return }
             do {
+                var lastPublish = ContinuousClock.now.advanced(by: Duration.seconds(-1))
                 for try await partial in self.rewrite.stream(text: self.sourceText, kind: kind, sampling: sampling) {
                     guard self.generationID == generationID else { return }
                     self.resultText = partial
-                    self.model.bodyText = partial
-                    self.model.hasResult = !partial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    let now = ContinuousClock.now
+                    if now - lastPublish >= Duration.milliseconds(80) {
+                        lastPublish = now
+                        self.model.bodyText = partial
+                        self.model.hasResult = !partial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    }
                 }
                 guard self.generationID == generationID else { return }
+                self.model.bodyText = self.resultText
+                self.model.hasResult = !self.resultText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 self.model.running = false
                 self.status?.hide()
                 self.outputTokens = await self.countTokens(self.resultText) ?? self.resultText.count / 4

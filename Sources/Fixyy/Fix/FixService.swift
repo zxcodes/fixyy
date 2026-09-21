@@ -7,6 +7,7 @@ public final class FixService {
     private let prefs: Prefs
     private let hud: HUDPresenting
     private let budget: TokenBudget
+    private var inFlight = false
 
     public var onJob: ((JobSummary) -> Void)?
 
@@ -25,6 +26,9 @@ public final class FixService {
     }
 
     public func run() async {
+        if inFlight { return }
+        inFlight = true
+        defer { inFlight = false }
         let start = ContinuousClock.now
         hud.showWorking()
         do {

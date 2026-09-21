@@ -34,7 +34,7 @@ public final class SelectionIO: SelectionHandling {
         postCommand(virtualKey: 8) // C
 
         var text: String?
-        for delay in [80, 120] as [UInt64] {
+        for delay in [80, 120, 200] as [UInt64] {
             try await Task.sleep(for: .milliseconds(delay))
             let current = pasteboard.string(forType: .string) ?? ""
             if current != sentinel, !current.isEmpty {
@@ -69,6 +69,10 @@ public final class SelectionIO: SelectionHandling {
     public func leaveOnClipboard(_ text: String) {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+    }
+
+    public func reactivateSourceApp() {
+        previousApp?.activate()
     }
 
     public var isEditableField: Bool {

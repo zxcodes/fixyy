@@ -63,9 +63,16 @@ public final class OnboardingWindowController: NSObject, NSWindowDelegate {
         pollTimer?.invalidate()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, self.model.step == .accessibility else { return }
+                guard let self else { return }
+                guard self.model.step == .accessibility else {
+                    self.pollTimer?.invalidate()
+                    self.pollTimer = nil
+                    return
+                }
                 if self.selection.isTrusted {
                     self.model.step = .intelligence
+                    self.pollTimer?.invalidate()
+                    self.pollTimer = nil
                 }
             }
         }

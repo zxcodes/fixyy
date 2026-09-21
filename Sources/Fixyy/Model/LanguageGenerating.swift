@@ -28,11 +28,13 @@ public protocol SelectionHandling: AnyObject {
     func undoLastPaste() async
     func leaveOnClipboard(_ text: String)
     func requestTrustPrompt()
+    func reactivateSourceApp()
 }
 
 public extension SelectionHandling {
     var isEditableField: Bool { true }
     func undoLastPaste() async {}
+    func reactivateSourceApp() {}
 }
 
 @MainActor

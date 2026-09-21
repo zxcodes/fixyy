@@ -15,7 +15,6 @@ public final class JobCoordinator {
     private let fix: FixService
     private let rewrite: RewriteService
     private let selection: SelectionHandling
-    private let model: LanguageGenerating
     private let card: RewriteCardController
     private let budget: TokenBudget
     private var work: Task<Void, Never>?
@@ -24,14 +23,12 @@ public final class JobCoordinator {
         fix: FixService,
         rewrite: RewriteService,
         selection: SelectionHandling,
-        model: LanguageGenerating,
         card: RewriteCardController,
         budget: TokenBudget = TokenBudget(contextSize: 4096)
     ) {
         self.fix = fix
         self.rewrite = rewrite
         self.selection = selection
-        self.model = model
         self.card = card
         self.budget = budget
         card.onDismiss = { [weak self] in
@@ -45,7 +42,6 @@ public final class JobCoordinator {
     }
 
     public func handleFix() {
-        model.prewarm()
         if phase == .fixing {
             work?.cancel()
             phase = .idle
@@ -62,11 +58,6 @@ public final class JobCoordinator {
     }
 
     public func handleRewrite() {
-        model.prewarm()
-        if card.isVisible {
-            card.cycleMode()
-            return
-        }
         work?.cancel()
         phase = .rewriting
         work = Task { [weak self] in
