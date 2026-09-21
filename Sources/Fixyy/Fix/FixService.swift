@@ -56,11 +56,7 @@ public final class FixService {
                 if result.hasChanges {
                     await selection.paste(result.text)
                     guard generation == runGeneration, !Task.isCancelled else { return }
-                    let original = text
-                    let diff = TextDiff.segments(from: original, to: result.text)
-                    hud.showFixed(diff: diff) { [weak self] in
-                        self?.undo()
-                    }
+                    hud.showFixed()
                     report(kind: .fix, promptTokens: promptTokens, outputTokens: outputTokens, latency: latency, outcome: .fixed)
                 } else {
                     hud.showUnchanged()
@@ -81,15 +77,6 @@ public final class FixService {
             guard generation == runGeneration else { return }
             present(.stalled)
             report(kind: .fix, promptTokens: nil, outputTokens: nil, latency: ContinuousClock.now - start, outcome: .error(.stalled))
-        }
-    }
-
-    public func undo() {
-        guard hud.undoVisible else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            await self.selection.undoLastPaste()
-            self.hud.hide()
         }
     }
 

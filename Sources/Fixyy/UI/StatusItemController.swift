@@ -11,6 +11,7 @@ public final class StatusItemController: NSObject {
     private let item: NSStatusItem
     private let info: ModelInfo
     private let spinner = NSProgressIndicator()
+    private let spinnerSlot = StatusItemController.makeSpinnerSlot()
     private var revertWork: DispatchWorkItem?
     private let idleImage = StatusIcon.mark()
     private let menu = NSMenu()
@@ -24,17 +25,33 @@ public final class StatusItemController: NSObject {
     }
 
     public func showWorking() {
+        showWorking("Fixing")
+    }
+
+    public func showWorking(_ message: String) {
         revertWork?.cancel()
-        item.button?.toolTip = "Fixyy — working"
-        setSpinner(true)
+        appear(image: spinnerSlot, title: message, spinning: true, tooltip: "Fixyy — \(message)")
     }
 
     public func showSuccess(_ message: String) {
-        flash(image: StatusIcon.check(), tooltip: "Fixyy — \(message)", seconds: 1.2)
+        flash(image: StatusIcon.check(), title: message, tooltip: "Fixyy — \(message)", seconds: 1.6)
     }
 
-    public func showError(_ error: AppError) {
-        flash(image: StatusIcon.error(), tooltip: error.message, seconds: 1.2)
+    public func showFixed() {
+        showSuccess("Fixed")
+    }
+
+    public func showUnchanged() {
+        showSuccess("Looks good")
+    }
+
+    public func showCancelled() {
+        hide()
+    }
+
+    public func showError(_ error: AppError, retry: (@MainActor () -> Void)? = nil) {
+        _ = retry
+        flash(image: StatusIcon.error(), title: nil, tooltip: error.message, seconds: 1.6)
     }
 
     public func hide() {
@@ -54,8 +71,10 @@ public final class StatusItemController: NSObject {
         spinner.translatesAutoresizingMaskIntoConstraints = false
         button.addSubview(spinner)
         NSLayoutConstraint.activate([
-            spinner.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+            spinner.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 6),
             spinner.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+            spinner.widthAnchor.constraint(equalToConstant: 16),
+            spinner.heightAnchor.constraint(equalToConstant: 16),
         ])
 
         menu.delegate = self
@@ -143,24 +162,9 @@ public final class StatusItemController: NSObject {
         }
     }
 
-    private func setSpinner(_ on: Bool) {
-        guard let button = item.button else { return }
-        if on {
-            button.image = nil
-            spinner.startAnimation(nil)
-        } else {
-            spinner.stopAnimation(nil)
-            if button.image == nil {
-                button.image = idleImage
-            }
-        }
-    }
-
-    private func flash(image: NSImage, tooltip: String, seconds: TimeInterval) {
+    private func flash(image: NSImage, title: String?, tooltip: String, seconds: TimeInterval) {
         revertWork?.cancel()
-        setSpinner(false)
-        item.button?.image = image
-        item.button?.toolTip = tooltip
+        appear(image: image, title: title, spinning: false, tooltip: tooltip)
         let work = DispatchWorkItem { [weak self] in
             self?.restoreIdle()
         }
@@ -169,13 +173,40 @@ public final class StatusItemController: NSObject {
     }
 
     private func restoreIdle() {
-        setSpinner(false)
-        item.button?.image = idleImage
-        item.button?.toolTip = "Fixyy"
+        appear(image: idleImage, title: nil, spinning: false, tooltip: "Fixyy")
+    }
+
+    private func appear(image: NSImage?, title: String?, spinning: Bool, tooltip: String) {
+        guard let button = item.button else { return }
+        spinner.isHidden = !spinning
+        if spinning {
+            spinner.startAnimation(nil)
+        } else {
+            spinner.stopAnimation(nil)
+        }
+        button.image = image ?? idleImage
+        if let title, !title.isEmpty {
+            item.length = NSStatusItem.variableLength
+            button.title = title
+            button.font = NSFont.menuBarFont(ofSize: 13)
+            button.imagePosition = .imageLeading
+            button.imageHugsTitle = true
+        } else {
+            button.title = ""
+            button.imagePosition = .imageOnly
+            item.length = NSStatusItem.squareLength
+        }
+        button.toolTip = tooltip
+    }
+
+    private static func makeSpinnerSlot() -> NSImage {
+        let image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { _ in true }
+        image.isTemplate = true
+        return image
     }
 }
 
-extension StatusItemController: NSMenuDelegate {
+extension StatusItemController: HUDPresenting, NSMenuDelegate {
     nonisolated public func menuWillOpen(_ menu: NSMenu) {
         Task { @MainActor [weak self] in
             guard let self else { return }

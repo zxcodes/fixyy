@@ -17,8 +17,8 @@ If macOS says the app can’t be opened, that’s Gatekeeper: right-click Fixyy.
 
 ## Use
 
-- **⌘⇧G** — fix grammar in place. A HUD shows the diff; Undo with ⌘Z. If nothing is wrong, it says “Looks good” and leaves the text alone.
-- **⌘⇧R** — rewrite window. Pick Shorter / Clearer / Formal / Friendly, or type your own instruction. Return applies, Esc cancels.
+- **⌘⇧G** — fix grammar in place. The menu bar shows a spinner and “Fixing”, then “Fixed”. If nothing is wrong, it says “Looks good” and leaves the text alone. Undo in the app you were in (⌘Z).
+- **⌘⇧R** — rewrite window. Pick Shorter / Clearer / Formal / Friendly, or type your own instruction. Return rewrites; ⌘Return applies; Esc closes.
 - The menu bar icon shows model status, the last job, Settings, and Quit.
 
 Shortcuts are editable in Settings. Launch at login is there too.

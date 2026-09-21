@@ -39,9 +39,8 @@ public extension SelectionHandling {
 
 @MainActor
 public protocol HUDPresenting: AnyObject {
-    var undoVisible: Bool { get }
     func showWorking()
-    func showFixed(diff: [TextDiff.Segment], undo: @escaping @MainActor () -> Void)
+    func showFixed()
     func showUnchanged()
     func showCancelled()
     func showError(_ error: AppError, retry: (@MainActor () -> Void)?)
@@ -49,7 +48,6 @@ public protocol HUDPresenting: AnyObject {
 }
 
 public extension HUDPresenting {
-    var undoVisible: Bool { false }
     func showError(_ error: AppError) {
         showError(error, retry: nil)
     }

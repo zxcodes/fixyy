@@ -95,21 +95,14 @@ final class FakeSelection: SelectionHandling {
 @MainActor
 final class HUDSpy: HUDPresenting {
     var events: [String] = []
-    var undoVisible = false
-    var undoAction: (@MainActor () -> Void)?
 
     func showWorking() { events.append("working") }
-    func showFixed(diff: [TextDiff.Segment], undo: @escaping @MainActor () -> Void) {
-        events.append("fixed")
-        undoVisible = true
-        undoAction = undo
-    }
+    func showFixed() { events.append("fixed") }
     func showUnchanged() { events.append("unchanged") }
-    func showCancelled() { events.append("cancelled"); undoVisible = false }
+    func showCancelled() { events.append("cancelled") }
     func showError(_ error: AppError, retry: (@MainActor () -> Void)?) {
         events.append("error:\(error)")
         if retry != nil { events.append("retry") }
-        undoVisible = false
     }
-    func hide() { events.append("hide"); undoVisible = false }
+    func hide() { events.append("hide") }
 }

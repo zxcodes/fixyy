@@ -68,17 +68,6 @@ final class FixServiceTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(env.selection.captureCalls, 2)
     }
 
-    func testUndoInvokesHostUndo() async {
-        let env = Env()
-        env.model.fixHandler = { _, _ in FixResult(hasChanges: true, text: "He goes to the store.") }
-        await env.service.run()
-        env.service.undo()
-        try? await Task.sleep(nanoseconds: 200_000_000)
-        XCTAssertEqual(env.selection.undoCalls, 1)
-        XCTAssertEqual(env.selection.pasted, ["He goes to the store."])
-        XCTAssertTrue(env.hud.events.contains("hide"))
-    }
-
     func testRetryClosureOnlyForRetryableErrors() async {
         let retryable = Env()
         retryable.model.fixHandler = { _, _ in throw AppError.stalled }

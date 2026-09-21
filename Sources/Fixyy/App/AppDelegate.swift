@@ -16,12 +16,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let selection = SelectionIO()
         let status = StatusItemController(info: info)
         self.status = status
-        let hud = FixHUD(status: status)
         let budget = TokenBudget(contextSize: info.contextSize) { [weak model] text in
             guard let model else { return nil }
             return await model.tokenCount(instructions: "", prompt: text)
         }
-        let fix = FixService(model: model, selection: selection, prefs: prefs, hud: hud, budget: budget)
+        let fix = FixService(model: model, selection: selection, prefs: prefs, hud: status, budget: budget)
         let rewrite = RewriteService(model: model, prefs: prefs)
         let card = RewriteCardController(
             rewrite: rewrite,

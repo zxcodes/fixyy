@@ -16,7 +16,6 @@ enum FixyyCheck {
         failures += await emptySelection()
         failures += await tooLong()
         failures += await cancelDoesNotPaste()
-        failures += await undoInvokesHostUndo()
         failures += await rewriteStreamsPartials()
         failures += await rewriteCancelStopsStream()
         failures += prompts()
@@ -132,22 +131,6 @@ enum FixyyCheck {
         return await MainActor.run {
             expect(ctx.selection.pasted.isEmpty, "cancel must not paste")
                 + expect(ctx.hud.events.contains("cancelled"), "cancelled HUD")
-        }
-    }
-
-    static func undoInvokesHostUndo() async -> Int {
-        let ctx = await MainActor.run { () -> Ctx in
-            let ctx = Ctx()
-            ctx.model.fixHandler = { _, _ in FixResult(hasChanges: true, text: "He goes to the store.") }
-            return ctx
-        }
-        await ctx.service.run()
-        await MainActor.run { ctx.service.undo() }
-        try? await Task.sleep(nanoseconds: 200_000_000)
-        return await MainActor.run {
-            expect(ctx.selection.undoCalls == 1, "undo uses host-app undo")
-                + expect(ctx.selection.pasted == ["He goes to the store."], "undo does not re-paste")
-                + expect(ctx.hud.events.contains("hide"), "undo hides HUD")
         }
     }
 
@@ -429,20 +412,15 @@ final class FakeSelection: SelectionHandling {
 @MainActor
 final class HUDSpy: HUDPresenting {
     var events: [String] = []
-    var undoVisible = false
     func showWorking() { events.append("working") }
-    func showFixed(diff: [TextDiff.Segment], undo: @escaping @MainActor () -> Void) {
-        events.append("fixed")
-        undoVisible = true
-    }
+    func showFixed() { events.append("fixed") }
     func showUnchanged() { events.append("unchanged") }
-    func showCancelled() { events.append("cancelled"); undoVisible = false }
+    func showCancelled() { events.append("cancelled") }
     func showError(_ error: AppError, retry: (@MainActor () -> Void)?) {
         events.append("error:\(error)")
         if retry != nil { events.append("retry") }
-        undoVisible = false
     }
-    func hide() { events.append("hide"); undoVisible = false }
+    func hide() { events.append("hide") }
 }
 
 func expect(_ condition: Bool, _ message: String) -> Int {

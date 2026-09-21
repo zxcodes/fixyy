@@ -147,7 +147,7 @@ public final class RewriteCardController: NSObject, NSWindowDelegate {
         model.hasResult = false
         model.mode = kind
         model.bodyText = sourceText
-        status?.showWorking()
+        status?.showWorking("Rewriting")
         jobStart = .now
         generateTask = Task { [weak self] in
             guard let self else { return }
