@@ -1,0 +1,11 @@
+.build/
+.swiftpm/
+Fixyy.app/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcuserstate
+.DS_Store
+*.p12
+*.pem
+scripts/.signing-tmp/
+docs/superpowers/specs/
