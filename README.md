@@ -1,60 +1,79 @@
 # Fixyy
 
-Menu-bar writing helper for Mac. Select text, press a shortcut, and Apple’s on-device Foundation Model fixes grammar or rewrites it. Nothing leaves the machine.
+Select text, press a shortcut, and Apple’s on-device model fixes grammar or rewrites it. Nothing leaves this Mac.
 
-- **⌘⇧G** — fix grammar in place with a diff HUD and Undo. If nothing is wrong, it says “Looks good” and does not replace.
-- **⌘⇧R** — rewrite window (Shorter / Clearer / Formal / Friendly / Custom) with a token meter. Return applies, Esc cancels.
-- Status item shows a native menu: live model status, Fix/Rewrite actions, last job, Settings, Quit.
-- Settings has two tabs (General, About); onboarding walks through Accessibility, Apple Intelligence, and a first fix.
+Requires **macOS 26+**, Apple Silicon, and Apple Intelligence.
 
-Requires **macOS 26+**, Apple Silicon, Apple Intelligence enabled.
+## Install
 
-## Build
+1. Download **Fixyy-*.dmg** from [Releases](https://github.com/zxcodes/fixyy/releases).
+2. Open it. Drag **Fixyy** onto the **Applications** folder in that window.
+3. Eject the disk image, then open Fixyy from Applications. It lives in the **menu bar**, not the Dock.
+4. Grant **Accessibility** when asked (System Settings → Privacy & Security → Accessibility).
 
-Xcode 16’s macOS 15 SDK does not include Foundation Models. This repo builds with the Command Line Tools macOS 26/27 SDK:
+Opening the `.app` from Downloads also works, but it won’t show the drag-to-Applications panel — that’s the disk image. Putting it in Applications is what you want for Login items and Accessibility.
 
-Keyboard shortcuts are Carbon global hotkeys (not the KeyboardShortcuts package) so the app builds with Command Line Tools, which lack SwiftUI `#Preview` macros.
+If macOS says the app can’t be opened, that’s Gatekeeper: right-click Fixyy.app → **Open**. That extra step goes away after the build is signed with an Apple Developer ID and notarized.
+
+## Use
+
+- **⌘⇧G** — fix grammar in place. A HUD shows the diff; Undo with ⌘Z. If nothing is wrong, it says “Looks good” and leaves the text alone.
+- **⌘⇧R** — rewrite window. Pick Shorter / Clearer / Formal / Friendly, or type your own instruction. Return applies, Esc cancels.
+- The menu bar icon shows model status, the last job, Settings, and Quit.
+
+Shortcuts are editable in Settings. Launch at login is there too.
+
+## Distribute
+
+`./dist.sh` builds `Fixyy.app` and writes `dist/Fixyy-<version>.dmg` (drag-to-Applications) plus a zip. Put the disk image on a GitHub Release:
 
 ```bash
-./setup-signing.sh    # once: stable identity so Accessibility survives rebuilds
+./setup-signing.sh    # once, so Accessibility survives rebuilds
+./dist.sh
+gh release create v1.0.0 dist/Fixyy-1.0.0.dmg --title "Fixyy 1.0.0"
+```
+
+People open the disk image, drag Fixyy onto Applications, and run it. It is **not** App Store software: replacing text in other apps uses synthetic ⌘C/⌘V, which the sandbox forbids.
+
+### So Gatekeeper lets it open
+
+Self-signed builds work on your Mac. Everyone else hits “Apple cannot check it for malicious software” until you notarize.
+
+You need an [Apple Developer Program](https://developer.apple.com/programs/) membership, a **Developer ID Application** certificate in Keychain, and a notarytool keychain profile:
+
+```bash
+xcrun notarytool store-credentials notarytool-profile \
+  --apple-id "you@example.com" \
+  --team-id "TEAMID" \
+  --password "app-specific-password"
+```
+
+Then:
+
+```bash
+export DEVELOPER_ID="Developer ID Application: Your Name (TEAMID)"
+export NOTARIZE_PROFILE="notarytool-profile"
+./dist.sh
+```
+
+That re-signs with the hardened runtime, notarizes the disk image, staples the ticket, and rewrites `dist/Fixyy-<version>.dmg`.
+
+## Build from source
+
+Xcode 16’s macOS 15 SDK does not include Foundation Models. Build with Command Line Tools and a macOS 26/27 SDK. Hotkeys are Carbon so the app still builds without SwiftUI `#Preview` macros.
+
+```bash
+./setup-signing.sh    # once
 ./build.sh
 open Fixyy.app
 ```
 
-Then grant **Accessibility** when prompted (System Settings → Privacy & Security → Accessibility).
+Ad-hoc signing (`codesign -s -`) looks trusted in System Settings while `AXIsProcessTrusted()` stays false. Use `./setup-signing.sh`.
 
 ```bash
-# service checks (no Accessibility, no live model)
 export SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX27.sdk
-swift run --build-system native fixyy-check
-
-# live on-device prompt fixtures (this Mac, real model)
-swift run --build-system native fixyy-fixtures
+swift run --build-system native fixyy-check      # no Accessibility, no live model
+swift run --build-system native fixyy-fixtures   # this Mac, real model
 ```
 
-`swift test` needs Xcode 26+; this machine’s Xcode 16 XCTest cannot load against CLT 27’s Testing.framework.
-
-Ad-hoc signing (`codesign -s -`) will _look_ like Accessibility is on while `AXIsProcessTrusted()` stays false. Use `./setup-signing.sh`.
-
-Not App Store: replacing text in other apps uses synthetic ⌘C/⌘V, which the sandbox forbids.
-
-## Layout
-
-```
-Sources/Fixyy/          app logic (library)
-  App/                  AppDelegate, JobCoordinator, JobSummary, AppError
-  Hotkeys/              Carbon hotkeys, KeyDisplay
-  Selection/            SelectionIO, PasteboardSnapshot, SelectionAnchor
-  Model/                ModelClient, ModelInfo, TokenBudget, TextDiff, prompts
-  Fix/                  FixService, FixHUD
-  Rewrite/              RewriteService, RewriteCard
-  Settings/             Prefs, SettingsWindow, ShortcutRecorder
-  Onboarding/           OnboardingWindow
-  UI/                   StatusItemController, StatusIcon
-Sources/FixyyApp/       menu-bar entry (FixyyApp.swift)
-Sources/FixyyCheck/     executable assertions (swift test can't run on CLT)
-Tests/FixyyTests/       fakes + XCTest suite for machines with Xcode 26
-Tools/make-icon.swift   generates Packaging/AppIcon.icns + icon candidates
-Fixtures/prompts/       messy + already-correct samples
-docs/superpowers/specs/ design
-```
+`swift test` needs Xcode 26+. Xcode 16’s XCTest cannot load against CLT 27’s Testing.framework.

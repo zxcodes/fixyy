@@ -39,6 +39,7 @@ public final class SettingsWindowController {
         let window = NSWindow(contentViewController: hosting)
         window.title = "Fixyy Settings"
         window.styleMask = [.titled, .closable]
+        window.toolbarStyle = .preference
         window.isReleasedWhenClosed = false
         window.setContentSize(NSSize(width: 500, height: 540))
         window.center()
@@ -52,6 +53,20 @@ public final class SettingsWindowController {
     }
 }
 
+enum SettingsPane: String, CaseIterable, Identifiable {
+    case general
+    case about
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .about: "About"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class SettingsModel {
@@ -60,6 +75,7 @@ final class SettingsModel {
     var accessibilityGranted: Bool
     var conflicts: [String: Bool] = [:]
     var selfTest: SelfTestState = .idle
+    var pane: SettingsPane = .general
 
     let prefs: Prefs
     let language: LanguageGenerating
@@ -166,16 +182,27 @@ final class SettingsModel {
 }
 
 struct SettingsView: View {
-    let model: SettingsModel
+    @Bindable var model: SettingsModel
 
     var body: some View {
-        TabView {
-            GeneralTab(model: model)
-                .tabItem { Label("General", systemImage: "gear") }
-            AboutTab(model: model)
-                .tabItem { Label("About", systemImage: "info.circle") }
+        Group {
+            switch model.pane {
+            case .general: GeneralTab(model: model)
+            case .about: AboutTab(model: model)
+            }
         }
         .frame(width: 500)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("Settings", selection: $model.pane) {
+                    ForEach(SettingsPane.allCases) { pane in
+                        Text(pane.title).tag(pane)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(minWidth: 180)
+            }
+        }
     }
 }
 

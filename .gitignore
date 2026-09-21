@@ -1,6 +1,7 @@
 .build/
 .swiftpm/
 Fixyy.app/
+dist/
 DerivedData/
 *.xcodeproj/xcuserdata/
 *.xcuserstate
